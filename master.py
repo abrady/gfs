@@ -1,7 +1,13 @@
 import sys
 import socket
 import select 
+import cPickle
+import net
 
+class ChunkMsg:
+	"message from a chunkserver"
+	def __call__(self):
+		print "ChunkMsg: ", self
 
 def srv(settings):
 	
@@ -47,10 +53,16 @@ def srv(settings):
 		
 		# chunks are trusted, just read the objects and execute them
 		for r in rds:
-			s = r.recv(settings.MAX_MASTERCMD_SIZE) # no partial reads of objects
-			print s
-			o = cPickle.loads(s)
+			recvr = net.Receiver(r)
+			o = recvr.recv_obj()
+			print "recv ", o
 			o()
+			
+			#debug
+			s_client.close()
+			s_chunk.close()
+			sys.exit()
+			
 		
 	while 1:
 		handle_clients(s_client)

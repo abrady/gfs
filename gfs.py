@@ -1,6 +1,7 @@
 import socket
 import chunkserver
 import master
+import net
 
 try:
 	import settings # Assumed to be in the same directory.
@@ -16,6 +17,7 @@ def execute():
 		reload(settings)
 		reload(chunkserver)
 		reload(master)
+		reload(net)
 
 	if(settings.TESTING):
 		import thread
@@ -26,3 +28,6 @@ def execute():
 
 if __name__ == "__main__":
     execute()
+
+# testing, remove
+execute()

@@ -11,4 +11,4 @@ MASTER_ADDR = 'localhost'
 MASTER_CHUNKPORT = 50000
 MASTER_CLIENTPORT = 50007
 
-MAX_MASTERCMD_SIZE = 16384 # totally arbitrary, but recvs will fail if objects sent over the wire are larger than this 
+# MAX_MASTERCMD_SIZE = 16384
