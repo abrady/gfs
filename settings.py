@@ -1,11 +1,7 @@
 TESTING = 1
 DEBUG = True
-BLOCK_SIZE = 64000 # in orignal paper 64MB, but this is better for testing
-CHUNKSERVERS = {
-	'A' : {},
-	'B' : {},
-	'C' : {},
-	}
+BLOCK_SIZE = 2**20 # in orignal paper 64MB, but this is better for testing
+CHUNKDIR = "chunkdir"
 
 MASTER_ADDR = 'localhost'
 MASTER_CHUNKPORT = 50000

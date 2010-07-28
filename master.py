@@ -1,28 +1,50 @@
+#TODO logging
+"""
+Metadata:
+full pathnames to metadata (with prefix compression)
+- no 'inode' type hierarchy of data
+- no symbolic names or aliases
+
+Master Operations:
+
+snapshot: a snapshot of a subset of the file system can be made by a client by request. the master revokes all leases and marks all chunks as needing a copy on write. When a chunk is finally written to and it is marked as such each chunkserver is first asked to make a copy of the chunk, and then the new chunk's handle is returned.
+
+locks are aquired in 'directory' order, e.g. for d1/d2/.../dn read locks will be acquired d1, d2, ..., dn, and a write lock acquired on d1/d2/.../dn/leaf.
+
+For snapshots, say /home/user is being snapshotted to /save/user. /home/user/foo is prevented from being created because /home/user gets a write lock which prevents a read lock on the same path. i.e.
+- file creation only requires a read lock on the directory
+- snapshots require write locks on the directory
+
+so the operations are serialized properly.
+
+(Note: I didn't see any info about timeouts or queueing of operations. I'm assuming there is a queue with a long timeout for these things as a snapshot might never succeed in acquiring a write lock for a directory otherwise)
+
+"""
 import sys
 import socket
 import select 
 import cPickle
 import net
+from log import log
 
-class ChunkMsg:
-	"message from a chunkserver"
-	def __call__(self):
-		print "ChunkMsg: ", self
+class ChunkConnect:
+	"message from a chunkserver when it first connects"
+
+	def __init__(self,ids):
+		'inits this message with all the UIDs for blocks a chunkserver knows'
+		self.ids = ids
+		
+	def __call__(self,meta):
+		log "ChunkConnect"
+		
+		
 
 def srv(settings):
 	
 	chunkservers = {}	
-	
-	def listen_sock(port):
-		print "listening on port ", port
-		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		s.bind(('',port))
-		s.setblocking(0)
-		s.listen(1)
-		return s
-		
-	s_chunk = listen_sock(settings.MASTER_CHUNKPORT)
-	s_client = listen_sock(settings.MASTER_CLIENTPORT)
+			
+	sock_chunk = net.listen_sock(settings.MASTER_CHUNKPORT)
+	sock_client = net.listen_sock(settings.MASTER_CLIENTPORT)
 
 	# select.select
 
@@ -32,7 +54,7 @@ def srv(settings):
 		except socket.error:
 			return # no conn, done
 		
-		print 'client conn from ', addr
+		log('client conn from %s' % str(addr))
 		# TODO client metadata requests
 		conn.close()
 		return
@@ -43,7 +65,7 @@ def srv(settings):
 		except socket.error:
 			return # no conn, done
 		# new connection
-		print 'chunkserv conn from ', addr
+		log('chunkserv conn from %s' % str( addr))
 
 		if(cs.has_key(addr)):
 			sys.stderr.write("duplicate address %r, dropping old" % addr)
@@ -55,17 +77,17 @@ def srv(settings):
 		for r in rds:
 			recvr = net.Receiver(r)
 			o = recvr.recv_obj()
-			print "recv ", o
+			log("recv " + str( o))
 			o()
 			
 			#debug
-			s_client.close()
-			s_chunk.close()
+			sock_client.close()
+			sock_chunk.close()
 			sys.exit()
 			
 		
 	while 1:
-		handle_clients(s_client)
-		handle_chunkservers(s_chunk, chunkservers)
+		handle_clients(sock_client)
+		handle_chunkservers(sock_chunk, chunkservers)
 
 

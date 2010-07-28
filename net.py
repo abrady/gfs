@@ -1,4 +1,9 @@
+import sys
+import socket
 import cPickle
+import select
+from log import log
+
 PAK_VER = 20100720
 
 class VersionMismatch(Exception):
@@ -7,7 +12,7 @@ class VersionMismatch(Exception):
 	def __str__(self):
 		return self.value
 
-class Sender:
+class PakSender:
 	"dumb packet switched class"
 	def __init__(self,sock):
 		self.sock = sock
@@ -25,18 +30,90 @@ class Sender:
 		print "sending obj", p
 		self.sock.send(p)
 
-class Receiver:
+class PakReceiver:
 	def __init__(self,sock):
 		self.sock = sock
 
 	def _recv_int(self):
 		s = self.sock.recv(16)
+		if not s:
+			return 0
 		return int(s)
 
 	def recv_obj(self):
 		ver = self._recv_int()
+		if not ver:
+			return None 
 		if(ver != PAK_VER):
 			raise VersionMismatch("recv_obj")
 		n = self._recv_int()
 		s = self.sock.recv(n)
 		return cPickle.loads(s)
+
+class PakClientMsg:
+	'dummy class that shows a callable client message'
+	def __init__(self,str):
+		self.str = str
+		
+	def __call__(self):
+		log("PakClientMsg: %s" % self.str)
+
+class PakServer:
+	"""handles a listen socket that receives packets from a PakSender
+	- listens for and accepts new connections
+	- keeps a list of clients that have connected
+	- removes clients that have disconnected
+	- receives objects from clients via the PakSend/Recv interface
+	- invokes sent objects via the callable interface"""
+
+	def __init__(self, listen_sock):
+		self.listen_sock = listen_sock
+		self.client_socks = []
+
+	def handle_clients(self):
+		log("checking for accepts")
+		try:
+			conn, addr = self.listen_sock.accept()
+			log('client conn from %s' % str(addr))
+			self.client_socks.append(conn)
+		except socket.error:
+			pass # no conn
+
+		if not self.client_socks:
+			return
+		
+		log("checking for reads")
+		rds,_,_ = select.select(self.client_socks,[],[],0)
+
+		log("reading %i sockets" % len(rds))
+		for r in rds:
+			recvr = PakReceiver(r)
+			if recvr:
+				obj = recvr.recv_obj()
+				log("recv " + str(obj))
+				obj()
+			else:
+				# client disconnect, drop it
+				r.close()
+				self.client_socks.remove(r)			
+
+def listen_sock(port):
+	log("listening on port %i" % port)
+	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	s.bind(('',port))
+	s.setblocking(0)
+	s.listen(1)
+	return s
+
+def client_sock(addr,port):
+	log('connecting to ' + addr + ' ' + str(port))
+	c = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	c.connect((addr,port))
+	return c
+
+def test():
+	ps = PakServer(listen_sock(1234))
+	pc = PakSender(client_sock('localhost',1234))
+	ps.handle_clients() # should see accepts
+	pc.send_obj(PakClientMsg("1234"))
+	ps.handle_clients()
