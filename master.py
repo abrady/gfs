@@ -25,9 +25,28 @@ import socket
 import select 
 import cPickle
 import net
-from log import log
+import log
 
-class ChunkConnect:
+def log(str):
+	log.log("[master] " + str)
+
+class ReadErr:
+	def __init__(self):
+		self.errmsg = "ReadErr"
+	
+
+class FileNotFoundErr(ReadErr):
+	def __init__(self,errmsg):
+		self.errmsg = errmsg
+
+
+class ChunkInfo:
+	"contains the id of a chunk, and the servers that manage it"
+	def __init__(self,chunk_id,servers):
+		self.id = chunk_id
+		self.servers = servers
+
+class ChunkConnectMsg:
 	"message from a chunkserver when it first connects"
 
 	def __init__(self,ids):
@@ -35,7 +54,38 @@ class ChunkConnect:
 		self.ids = ids
 		
 	def __call__(self,meta):
-		log "ChunkConnect"
+		log("ChunkConnectMsg")
+
+
+class ClientReadMsg:
+	"message from a clientserver when it first connects"
+
+	def __init__(self,fname,chunk_index,len):
+		'inits this message with a read request'
+		self.fname = fname
+		self.offset = offset
+		self.len = len
+		
+	def __call__(self,sock,meta):
+		log("ClientRead(%s,%i,len=%i"%(self.fname,self.offset,self.len))
+
+		# get the file info
+		file_info = meta.fileinfos[self.fname]
+		if not file_info:
+			sender = PakSender(sock)
+			sender.send_obj(ReadErr("file '%s' not found" % self.fname))
+			return
+
+		# get the chunk info
+		chunk_info = file_info.chunks[chunk_index]
+		if not chunk_info:
+			sender.send_obj(ReadErr("chunk '%i' not found"%chunk_index))
+			return
+
+		# queue up the read request. Because a write could be in operation
+		# this could fail here.
+		meta.queue[(self.fname,chunk_index)] = (sock, 'read')
+		
 		
 		
 
@@ -75,7 +125,7 @@ def srv(settings):
 		
 		# chunks are trusted, just read the objects and execute them
 		for r in rds:
-			recvr = net.Receiver(r)
+			recvr = net.PakReceiver(r)
 			o = recvr.recv_obj()
 			log("recv " + str( o))
 			o()

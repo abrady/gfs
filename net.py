@@ -50,6 +50,11 @@ class PakReceiver:
 		s = self.sock.recv(n)
 		return cPickle.loads(s)
 
+class PakComm(PakReceiver,PakSender):
+	"helper for combining a sender and receiver"
+	def __init__(self,sock):
+		self.sock = sock
+
 class PakClientMsg:
 	'dummy class that shows a callable client message'
 	def __init__(self,str):

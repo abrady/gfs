@@ -53,9 +53,22 @@ import io
 import fnmatch
 import re
 import hashlib
-from log import log
+import log
+
 
 chunkservid = 0
+
+def log(str):
+	log.log("[chunk%i] %s" % (chunkserverid,str))
+
+
+class ReadMsg:
+	"object sent from clients for read requests"
+	def __init__(self,id,offset,len):
+		self.id = id
+		self.offset = offset
+		self.len = len
+
 
 class ChunkInfo:
 	"""info about a particular chunk that a chunkserver owns:
@@ -72,6 +85,7 @@ class ChunkInfo:
 		m = hashlib.md5()
 		m.update(s)
 		self.__init__(id,m.digest())
+
 		
 class Meta:
 	'all the info about the chunks that a chunkserver owns'
@@ -85,6 +99,7 @@ class Meta:
 			sys.stderr.write("Error: re-adding chunk " + chunkid + "ignoring")
 			return
 		self.chunks[chunkid] = ChunkInfo(chunkid)
+
 
 def load_chunkinfo():
 	'load up all the chunks in the local fs'
@@ -103,7 +118,7 @@ def srv():
 	"""main function for a chunkserver:
 	- scan the chunkdir for chunks
 	"""
-
+	chunkservid += 1
 	chunkdir = settings.CHUNK_DIR + str(chunkserverid)
 	chunkserverid += 1
 	os.mkdir(chunkdir)
@@ -112,9 +127,9 @@ def srv():
 	meta = load_chunkinfo()
 	
 	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-	s.connect((settings.MASTER_ADD,R,settings.MASTER_CHUNKPORT))
+	s.connect((settings.MASTER_ADD,R,settings. MASTER_CHUNKPORT))
 	master_conn = net.PakSender(s)
-	master_conn.send_obj(ChunkConnect(meta.chunks.keys))
+	master_conn.send_obj(ChunkConnectMsg(meta.chunks.keys))
 
 
 
