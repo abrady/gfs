@@ -26,6 +26,7 @@ import select
 import cPickle
 import net
 import log
+import time
 
 def log(str):
 	log.log("[master] " + str)
@@ -63,81 +64,67 @@ class ClientReadMsg:
 	def __init__(self,fname,chunk_index,len):
 		'inits this message with a read request'
 		self.fname = fname
-		self.offset = offset
+		self.chunk_index = chunk_index
 		self.len = len
 		
 	def __call__(self,sock,meta):
-		log("ClientRead(%s,%i,len=%i"%(self.fname,self.offset,self.len))
+		'fulfill the request if nothing is queued'
+		log("ClientReadQ(%s,%i,len=%i"%(self.fname,self.offset,self.len))
+		# queue up the read request. Because a write could be in operation
+		# this could fail here.
+		if not meta.client_req_queues[(self.fname,self.chunk_index)]:
+			meta.client_req_queues[(self.fname,self.chunk_index)] = []
+		meta.queue[(self.fname,self.chunk_index)].append((self,sock, 'read'))
 
+	def fulfull(self,meta,sock):
+		"""dispatch the call when it reaches the front of the
+		queue. returns True if this request should be removed from the
+		queue, False otherwise"""
+		
 		# get the file info
 		file_info = meta.fileinfos[self.fname]
 		if not file_info:
 			sender = PakSender(sock)
 			sender.send_obj(ReadErr("file '%s' not found" % self.fname))
-			return
+			return True
 
 		# get the chunk info
 		chunk_info = file_info.chunks[chunk_index]
 		if not chunk_info:
 			sender.send_obj(ReadErr("chunk '%i' not found"%chunk_index))
-			return
+			return True
 
-		# queue up the read request. Because a write could be in operation
-		# this could fail here.
-		meta.queue[(self.fname,chunk_index)] = (sock, 'read')
-		
-		
-		
+		if chunk_info.lock == 'write':
+			return False # wait until write done to do a read
+
+		chunk_info.lock = 'read'
+		chunk_info.lock_time = time.time()
+		sender.send_obj(chunk_info)
+		return True
+
 
 def srv(settings):
+	log("master server start")
+	listen_sock_chunk = net.listen_sock(settings.MASTER_CHUNK_PORT)
+	listen_sock_client = net.listen_sock(settings.MASTER_CLIENT_PORT)
+	chunkserver_req_handler = PakServer(listen_sock_chunk,"chunkhandler")
+	client_req_handler = PakServer(listen_sock_client,"clienthandler")
 	
-	chunkservers = {}	
-			
-	sock_chunk = net.listen_sock(settings.MASTER_CHUNKPORT)
-	sock_client = net.listen_sock(settings.MASTER_CLIENTPORT)
-
-	# select.select
-
-	def handle_clients(s):
-		try:
-			conn, addr = s.accept()
-		except socket.error:
-			return # no conn, done
-		
-		log('client conn from %s' % str(addr))
-		# TODO client metadata requests
-		conn.close()
-		return
-
-	def handle_chunkservers(s, cs):
-		try:
-			conn, addr = s.accept()
-		except socket.error:
-			return # no conn, done
-		# new connection
-		log('chunkserv conn from %s' % str( addr))
-
-		if(cs.has_key(addr)):
-			sys.stderr.write("duplicate address %r, dropping old" % addr)
-		cs[addr] = conn
-
-		rds,_,_ = select.select(cs.values(),(),())
-		
-		# chunks are trusted, just read the objects and execute them
-		for r in rds:
-			recvr = net.PakReceiver(r)
-			o = recvr.recv_obj()
-			log("recv " + str( o))
-			o()
-			
-			#debug
-			sock_client.close()
-			sock_chunk.close()
-			sys.exit()
-			
-		
 	while 1:
-		handle_clients(sock_client)
-		handle_chunkservers(sock_chunk, chunkservers)
+		chunkserver_req_handler.tick()
+		client_req_handler.tick()
+		
+		for qk in meta.client_req_queues.keys():
+			q = meta.client_req_queues[qk]
+			for (req, sock, debug_str) in q:
+				log("req queue: " + debug_str)
+				if not req.fulfill(sock,meta):
+					break				
+				# done with req. pop it off the front
+				meta.client_req_queues[qk] = meta.client_req_queues[qk][1:]
+
+			
+			
+			
 
 

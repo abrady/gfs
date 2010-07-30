@@ -1,6 +1,7 @@
 import socket
 import chunkserver
 import master
+import client
 import net
 
 try:
@@ -17,13 +18,14 @@ def execute():
 		reload(settings)
 		reload(chunkserver)
 		reload(master)
+		reload(client)
 		reload(net)
 
 	if(settings.TESTING):
 		import thread
-		thread.start_new_thread(chunkserver.srv,(settings,))
-		
-	master.srv(settings)
+		thread.start_new_thread(chunkserver.srv,())
+		thread.start_new_thread(master.srv,())
+		client.test()
 
 
 if __name__ == "__main__":

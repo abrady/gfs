@@ -69,7 +69,6 @@ class ReadMsg:
 		self.offset = offset
 		self.len = len
 
-
 class ChunkInfo:
 	"""info about a particular chunk that a chunkserver owns:
 	- ids
@@ -118,6 +117,7 @@ def srv():
 	"""main function for a chunkserver:
 	- scan the chunkdir for chunks
 	"""
+	log("chunkserver start")
 	chunkservid += 1
 	chunkdir = settings.CHUNK_DIR + str(chunkserverid)
 	chunkserverid += 1
@@ -131,7 +131,14 @@ def srv():
 	master_conn = net.PakSender(s)
 	master_conn.send_obj(ChunkConnectMsg(meta.chunks.keys))
 
-
+	sock_client = net.listen_sock(settings.MASTER_CLIENTPORT)
+	while 1:
+		try:
+			conn, addr = s.accept()
+		except socket.error:
+			pass
+		
+		
 
 if __name__ == "__main__":
 	chunkserver()

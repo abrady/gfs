@@ -71,15 +71,16 @@ class PakServer:
 	- receives objects from clients via the PakSend/Recv interface
 	- invokes sent objects via the callable interface"""
 
-	def __init__(self, listen_sock):
+	def __init__(self, listen_sock, name):
 		self.listen_sock = listen_sock
 		self.client_socks = []
+		self.name = name
 
-	def handle_clients(self):
+	def tick(self):
 		log("checking for accepts")
 		try:
 			conn, addr = self.listen_sock.accept()
-			log('client conn from %s' % str(addr))
+			log('%s conn from %s' % (self.name, str(addr)))
 			self.client_socks.append(conn)
 		except socket.error:
 			pass # no conn
@@ -113,12 +114,20 @@ def listen_sock(port):
 def client_sock(addr,port):
 	log('connecting to ' + addr + ' ' + str(port))
 	c = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-	c.connect((addr,port))
+	c.setblocking(0)
+	try:
+		c.connect((addr,port))
+	except socket.error:
+		pass
 	return c
 
 def test():
-	ps = PakServer(listen_sock(1234))
-	pc = PakSender(client_sock('localhost',1234))
-	ps.handle_clients() # should see accepts
-	pc.send_obj(PakClientMsg("1234"))
-	ps.handle_clients()
+	port = 12345
+	ps = PakServer(listen_sock(port),"testserver")
+	pc0 = PakSender(client_sock('localhost',port))
+	pc1 = PakSender(client_sock('localhost',port))
+	ps.tick() # should see 2 accepts
+	pc0.send_obj(PakClientMsg("0: hello port %i" % port))
+	pc1.send_obj(PakClientMsg("1: hello port %i" % port))
+	ps.tick()
+	del ps

@@ -19,7 +19,7 @@ Client operations:
 - append
 """
 import random
-import chunkservers
+import chunkserver
 import master
 import log
 
@@ -36,8 +36,7 @@ def read(fname, offset, len):
 	4 close handle on the master
 	4a master releases lock
 	"""
-
-	sock = client_sock(settings.MASTER_ADDR, settings.MASTER_CLIENT_PORT)
+	sock = net.client_sock(settings.MASTER_ADDR, settings.MASTER_CLIENT_PORT)
 	master_comm  = PakComm(sock)
 	chunk_index = offset/settings.CHUNK_SIZE
 	master_comm.send_obj(master.ClientReadMsg(fname,chunk_index,len))
@@ -56,7 +55,7 @@ def read(fname, offset, len):
 	# pick a chunkserver to talk to
 	random.shuffle(chunk_info.servers)
 	chunkaddr = chunk_info.servers[0]
-	chunksock = client_sock(chunkaddr, settings.CHUNK_CLIENT_PORT)
+	chunksock = net.client_sock(chunkaddr, settings.CHUNK_CLIENT_PORT)
 	chunk_comm = PakComm(chunksock)
 	read_req = chunkserver.ReadMsg(chunk_info.id,offset,len)
 	chunk_comm.send_obj(read_req)
@@ -71,6 +70,5 @@ def read(fname, offset, len):
 	yield read_res
 	return 
 
-	
-	
-	
+def test():
+	read("foo",0,32)
