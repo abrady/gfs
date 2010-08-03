@@ -19,12 +19,23 @@ Client operations:
 - append
 """
 import random
-import chunkserver
-import master
-import log
+
+# package modules
+import msg
+from log import log as _log # cheesy
+
+try:
+	import settings # Assumed to be in the same directory.
+except ImportError:
+	sys.stderr.write("Error: Can't find the file 'settings.py' in the directory containing %r. This is required\n" % __file__)
+	sys.exit(1)
+	
+	if(settings.DEBUG):
+		reload(settings)
+
 
 def log(str):
-	log.log("[client] " + str)
+	_log("[client] " + str)
 
 
 def read(fname, offset, len):
@@ -39,7 +50,7 @@ def read(fname, offset, len):
 	sock = net.client_sock(settings.MASTER_ADDR, settings.MASTER_CLIENT_PORT)
 	master_comm  = PakComm(sock)
 	chunk_index = offset/settings.CHUNK_SIZE
-	master_comm.send_obj(master.ClientReadMsg(fname,chunk_index,len))
+	master_comm.send_obj(msg.ClientRead(fname,chunk_index,len))
 
 	# wait for handle (yield)
 	while True:
@@ -57,7 +68,7 @@ def read(fname, offset, len):
 	chunkaddr = chunk_info.servers[0]
 	chunksock = net.client_sock(chunkaddr, settings.CHUNK_CLIENT_PORT)
 	chunk_comm = PakComm(chunksock)
-	read_req = chunkserver.ReadMsg(chunk_info.id,offset,len)
+	read_req = msg.ClientRead(chunk_info.id,offset,len)
 	chunk_comm.send_obj(read_req)
 
 	# wait for handle (yield)

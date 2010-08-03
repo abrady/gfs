@@ -46,28 +46,29 @@ Mutation Steps:
 
 import settings
 import socket
-import gfs
 import net
-import master
 import io
 import fnmatch
 import re
 import hashlib
+import os
+import cPickle
+
 import log
+import msg
+
+try:
+	import settings # Assumed to be in the same directory.
+except ImportError:
+	sys.stderr.write("Error: Can't find the file 'settings.py' in the directory containing %r. This is required\n" % __file__)
+	sys.exit(1)
+	
+	if(settings.DEBUG):
+		reload(settings)
+
 
 
 chunkservid = 0
-
-def log(str):
-	log.log("[chunk%i] %s" % (chunkserverid,str))
-
-
-class ReadMsg:
-	"object sent from clients for read requests"
-	def __init__(self,id,offset,len):
-		self.id = id
-		self.offset = offset
-		self.len = len
 
 class ChunkInfo:
 	"""info about a particular chunk that a chunkserver owns:
@@ -99,8 +100,7 @@ class Meta:
 			return
 		self.chunks[chunkid] = ChunkInfo(chunkid)
 
-
-def load_chunkinfo():
+def load_meta():
 	'load up all the chunks in the local fs'
 
 	# TODO: cache the meta info.
@@ -113,32 +113,43 @@ def load_chunkinfo():
 			meta.add_existing_chunk(id)
 	return meta
 
-def srv():
-	"""main function for a chunkserver:
-	- scan the chunkdir for chunks
-	"""
-	log("chunkserver start")
-	chunkservid += 1
-	chunkdir = settings.CHUNK_DIR + str(chunkserverid)
-	chunkserverid += 1
-	os.mkdir(chunkdir)
-	os.chdir(chunkdir)
-	
-	meta = load_chunkinfo()
-	
-	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-	s.connect((settings.MASTER_ADD,R,settings. MASTER_CHUNKPORT))
-	master_conn = net.PakSender(s)
-	master_conn.send_obj(ChunkConnectMsg(meta.chunks.keys))
 
-	sock_client = net.listen_sock(settings.MASTER_CLIENTPORT)
-	while 1:
-		try:
-			conn, addr = s.accept()
-		except socket.error:
-			pass
+class ChunkServer:
+	"class for managing a chunkserver"
+	def __init__(self):
+		"""inits a chunkserver:
+		- scan the chunkdir for chunks
+		- connect to master
+		- open client listening port
+		"""
+		global chunkservid
+		self.id = chunkservid
+		self.log("chunkserver init")
 		
+		chunkdir = settings.CHUNK_DIR + str(chunkservid)		
+		chunkservid += 1
 		
+		if not os.path.exists(chunkdir):
+			os.mkdir(chunkdir)
+			os.chdir(chunkdir)
+		meta = load_meta()
+	
+		s = net.client_sock(settings.MASTER_ADDR,settings. MASTER_CHUNK_PORT)
+		self.master = net.PakComm(s)
+		chunk_conn = msg.ChunkConnect(meta.chunks.keys())
+		self.log(str(chunk_conn))
+		self.master.send_obj(chunk_conn)
 
-if __name__ == "__main__":
-	chunkserver()
+		s = net.listen_sock(settings.CHUNK_CLIENT_PORT)
+		self.client_server = net.PakServer(s,chunkdir)
+
+	def tick(self):
+		"function for chunkserver to send and receive requests"
+		def client_req_handler(obj,sock):
+			self.log("obj %s from client %s" % (obj,sock))
+				
+		self.client_server.tick(client_req_handler)
+
+	def log(self,str):
+		log.log("[chunk%i] %s" % (self.id,str))
+

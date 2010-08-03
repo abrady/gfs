@@ -1,4 +1,4 @@
 import sys
 
 def log(str):
-	sys.stderr.write("LOG: " + str + "\n")
+	sys.stderr.write("LOG\t" + str + "\n")

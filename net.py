@@ -3,6 +3,7 @@ import socket
 import cPickle
 import select
 from log import log
+import msg
 
 PAK_VER = 20100720
 
@@ -18,16 +19,16 @@ class PakSender:
 		self.sock = sock
 
 	def _send_int(self, n):
+		log("sending %i" % n)
 		n = "%16i" % n
-		print "sending ", n
 		self.sock.send(n)
 
-	def send_obj(self, obj):
+	def send_obj(self, o):
 		# send header
 		self._send_int(PAK_VER)
-		p = cPickle.dumps(obj)
+		log("send_obj " + str(o))
+		p = cPickle.dumps(o) # if it fails here, obj probably not pickle-able
 		self._send_int(len(p))
-		print "sending obj", p
 		self.sock.send(p)
 
 class PakReceiver:
@@ -76,8 +77,13 @@ class PakServer:
 		self.client_socks = []
 		self.name = name
 
-	def tick(self):
-		log("checking for accepts")
+	def tick(self, obj_handler=None):
+		"""
+		Check for any incoming connections, and listen for any objects
+		from open connections.
+
+		obj_handler -- optional callback function, if this is None, any received objects are invoked via the __call__ interface
+		"""
 		try:
 			conn, addr = self.listen_sock.accept()
 			log('%s conn from %s' % (self.name, str(addr)))
@@ -88,16 +94,20 @@ class PakServer:
 		if not self.client_socks:
 			return
 		
-		log("checking for reads")
 		rds,_,_ = select.select(self.client_socks,[],[],0)
 
-		log("reading %i sockets" % len(rds))
+		if(len(rds)):
+			log("reading %i sockets" % len(rds))
+			
 		for r in rds:
 			recvr = PakReceiver(r)
 			if recvr:
 				obj = recvr.recv_obj()
 				log("recv " + str(obj))
-				obj()
+				if(obj_handler):
+					obj_handler(obj,r)
+				else:
+					obj(r)
 			else:
 				# client disconnect, drop it
 				r.close()
@@ -108,21 +118,17 @@ def listen_sock(port):
 	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 	s.bind(('',port))
 	s.setblocking(0)
-	s.listen(1)
+	s.listen(1024) # arbitrary number of outstanding connects allowed
 	return s
 
 def client_sock(addr,port):
 	log('connecting to ' + addr + ' ' + str(port))
 	c = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-	c.setblocking(0)
-	try:
-		c.connect((addr,port))
-	except socket.error:
-		pass
+	c.connect((addr,port))
 	return c
 
 def test():
-	port = 12345
+	port = 12346
 	ps = PakServer(listen_sock(port),"testserver")
 	pc0 = PakSender(client_sock('localhost',port))
 	pc1 = PakSender(client_sock('localhost',port))
