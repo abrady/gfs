@@ -11,6 +11,14 @@ def log(str):
 #	_log(str)
 	return
 
+def can_recv(sock):
+	rds,_,_ = select.select([sock],[],[],0)
+	return len(rds) > 0
+
+def can_send(sock):
+	_,ws,_ = select.select([],[sock],[],0)
+	return len(ws) > 0
+
 class VersionMismatch(Exception):
 	def __init__(self,value):
 		self.value = value
@@ -46,7 +54,7 @@ class PakReceiver:
 		return int(s)
 
 	def recv_obj(self):
-		if not self.can_recv():
+		if not can_recv(self.sock):
 			return None
 		
 		ver = self._recv_int()
@@ -60,9 +68,6 @@ class PakReceiver:
 		log("loading " + s)
 		return cPickle.loads(s)
 
-	def can_recv(self):
-		rds,_,_ = select.select([self.sock],[],[],0)
-		return len(rds) > 0
 	
 class PakComm(PakReceiver,PakSender):
 	"helper for combining a sender and receiver"

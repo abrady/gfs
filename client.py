@@ -70,8 +70,10 @@ def read(fname, offset, len):
 
 	# pick a chunkserver to talk to
 	random.shuffle(chunk_info.servers)
-	chunkaddr = chunk_info.servers[0]
-	chunksock = net.client_sock(chunkaddr, settings.CHUNK_CLIENT_PORT)
+	chunkaddr,port = chunk_info.servers[0]
+	chunksock = net.client_sock(chunkaddr,port)
+	while not net.can_send(chunksock):
+		yield None
 	chunk_comm = net.PakComm(chunksock)
 	read_req = msg.ClientRead(chunk_info.id,offset,len)
 	chunk_comm.send_obj(read_req)

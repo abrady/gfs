@@ -54,7 +54,7 @@ class FileInfo:
 	"contains list of chunks by offset and any other file info"
 	def __init__(self,fname):
 		self.fname = fname
-		self.chunkinfos = {}
+		self.chunkinfos = []
 
 
 class Meta:
@@ -105,7 +105,7 @@ class MasterServer:
 def write_test_meta():
 	meta = Meta()
 	fi = FileInfo('foo')
-	fi.chunkinfos['0'] = ChunkInfo(0,[])
+	fi.chunkinfos.insert(0,ChunkInfo('0',[]))
 	meta.fileinfos['foo'] = fi
 	f = open(settings.MASTER_META_FNAME,'wb')
 	cPickle.dump(meta,f)

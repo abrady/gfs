@@ -18,13 +18,13 @@ class ChunkConnect:
 			added = False
 			log.log("trying to add " + id)
 			for fi in meta.fileinfos.values():
-				if fi.chunkinfos.has_key(id):
+				for ci in fi.chunkinfos:
+					if ci.id != id:
+						pass
+						
 					log.log('adding chunkserver %s to file %s' % (str(self.sockname),fi.fname))
-					ci = fi.chunkinfos[id]
 					ci.servers.append((self.sockname))
 					added = True
-				else:
-					log.log("file %s doesn't have id %s" % (fi.fname,id))
 
 			if not added:
 				# TODO: gc these chunks?
@@ -63,7 +63,6 @@ class ClientRead:
 		except IndexError:
 			log.log("ClientRead: chunk index out of bounds %i" % self.chunk_index)
 			res.send_obj(ReadErr("chunk '%i' out of range"%self.chunk_index))
-)
 
 class ReadErr:
 	def __init__(self,str):
