@@ -21,6 +21,7 @@ Client operations:
 import random
 
 # package modules
+import net
 import msg
 from log import log as _log # cheesy
 
@@ -47,19 +48,23 @@ def read(fname, offset, len):
 	4 close handle on the master
 	4a master releases lock
 	"""
+	log("read(%s,%i,%i)"%(fname,offset,len))
 	sock = net.client_sock(settings.MASTER_ADDR, settings.MASTER_CLIENT_PORT)
-	master_comm  = PakComm(sock)
+	log("read: connected to master")
+	sock.setblocking(False)
+	master_comm  = net.PakComm(sock)
 	chunk_index = offset/settings.CHUNK_SIZE
 	master_comm.send_obj(msg.ClientRead(fname,chunk_index,len))
 
 	# wait for handle (yield)
+	log("read: entering wait loop")
 	while True:
 		chunk_info = master_comm.recv_obj()
 		if not chunk_info:
 			yield None
 		else:
 			break
-	if isintance(chunk_info,master.ReadErr):
+	if isinstance(chunk_info,msg.ReadErr):
 		log("read request failed: '%s'" % str(chunk_info))
 		return 
 
@@ -67,11 +72,12 @@ def read(fname, offset, len):
 	random.shuffle(chunk_info.servers)
 	chunkaddr = chunk_info.servers[0]
 	chunksock = net.client_sock(chunkaddr, settings.CHUNK_CLIENT_PORT)
-	chunk_comm = PakComm(chunksock)
+	chunk_comm = net.PakComm(chunksock)
 	read_req = msg.ClientRead(chunk_info.id,offset,len)
 	chunk_comm.send_obj(read_req)
 
 	# wait for handle (yield)
+	yield None
 	while True:
 		read_res = chunk_comm.recv_obj()
 		if not read_res: 

@@ -5,6 +5,7 @@ import client
 import net
 import random
 import log
+import msg
 
 try:
 	import settings # Assumed to be in the same directory.
@@ -25,6 +26,7 @@ if(settings.DEBUG):
 	reload(master)
 	reload(client)
 	reload(net)
+	reload(msg)
 
 if(settings.TESTING):
 	import thread
@@ -37,9 +39,16 @@ if(settings.TESTING):
 	settings.MASTER_CHUNK_PORT = random_port()
 	settings.MASTER_CLIENT_PORT = settings.MASTER_CHUNK_PORT + 1
 	settings.CHUNK_CLIENT_PORT = settings.MASTER_CLIENT_PORT + 1
-	log.log("chunk port %i, master client port %i chunk client port %i" % (settings.MASTER_CHUNK_PORT, settings.MASTER_CLIENT_PORT,settings.CHUNK_CLIENT_PORT))
+	log.log("[gfs testing] chunk port %i, master client port %i chunk client port %i" % (settings.MASTER_CHUNK_PORT, settings.MASTER_CLIENT_PORT,settings.CHUNK_CLIENT_PORT))
 	master.write_test_meta()
 	global master
 	global chunk
+	global client
 	master = master.MasterServer()
 	chunk = chunkserver.ChunkServer()
+	master.tick()
+	chunk.write_test_chunk()
+	client = client.read("foo",0,32)
+	client.next()
+	master.tick()
+	client.next()

@@ -70,6 +70,14 @@ except ImportError:
 
 chunkservid = 0
 
+def checksum_chunk(fn):
+	f = open(fn,'rb')
+	s = f.read(settings.CHUNK_SIZE)
+	m = hashlib.md5()
+	m.update(s)
+	return m.digest()
+	
+
 class ChunkInfo:
 	"""info about a particular chunk that a chunkserver owns:
 	- ids
@@ -78,41 +86,6 @@ class ChunkInfo:
 	def __init__(self, id, checksum):
 		self.id = id
 		self.checksum = checksum
-
-	def __init__(self,id):
-		f = open(id + '.chunk','rb')
-		s = f.read(settings.CHUNK_SIZE)
-		m = hashlib.md5()
-		m.update(s)
-		self.__init__(id,m.digest())
-
-		
-class Meta:
-	'all the info about the chunks that a chunkserver owns'
-	def __init__(self):
-		self.chunks = {}
-
-	def add_existing_chunk(self,chunkid):
-		"""add an existing chunk to a chunkserver by id.
-		Assumes file already exists"""
-		if self.chunks.has_key(chunkid):
-			sys.stderr.write("Error: re-adding chunk " + chunkid + "ignoring")
-			return
-		self.chunks[chunkid] = ChunkInfo(chunkid)
-
-def load_meta():
-	'load up all the chunks in the local fs'
-
-	# TODO: cache the meta info.
-	# right now just rebuild it each time
-	meta = Meta()	
-	chunkfiles = fnmatch.filter(os.listdir('.'),"*.chunk")
-	for cf in chunkfiles:
-		id = re.sub(".chunk","",cf)
-		if not chunkinfo.chunks.has_key(id):
-			meta.add_existing_chunk(id)
-	return meta
-
 
 class ChunkServer:
 	"class for managing a chunkserver"
@@ -126,30 +99,51 @@ class ChunkServer:
 		self.id = chunkservid
 		self.log("chunkserver init")
 		
-		chunkdir = settings.CHUNK_DIR + str(chunkservid)		
+		self.chunkdir = settings.CHUNK_DIR + str(chunkservid)		
 		chunkservid += 1
 		
-		if not os.path.exists(chunkdir):
-			os.mkdir(chunkdir)
-			os.chdir(chunkdir)
-		meta = load_meta()
+		if not os.path.exists(self.chunkdir):
+			os.mkdir(self.chunkdir)
+		self._load()
 	
 		s = net.client_sock(settings.MASTER_ADDR,settings. MASTER_CHUNK_PORT)
 		self.master = net.PakComm(s)
-		chunk_conn = msg.ChunkConnect(meta.chunks.keys())
-		self.log(str(chunk_conn))
+		chunk_conn = msg.ChunkConnect(s.getsockname(),self.chunks.keys())
 		self.master.send_obj(chunk_conn)
 
 		s = net.listen_sock(settings.CHUNK_CLIENT_PORT)
-		self.client_server = net.PakServer(s,chunkdir)
+		self.client_server = net.PakServer(s,self.chunkdir)
 
 	def tick(self):
 		"function for chunkserver to send and receive requests"
 		def client_req_handler(obj,sock):
 			self.log("obj %s from client %s" % (obj,sock))
-				
+			obj(self,sock)
 		self.client_server.tick(client_req_handler)
+
+	def _load(self):
+		'load up all the chunks in the chunks directory'
+		
+		# TODO: cache the checksum info.
+		# right now just rebuild it each time
+		chunkfiles = fnmatch.filter(os.listdir(self.chunkdir),"*chunk")
+		self.log("loading meta for dir %s, %i chunks" % (self.chunkdir,len(chunkfiles)))
+
+		self.chunks = {}
+		for cf in chunkfiles:
+			self.log("adding: " + cf)
+			id = re.sub(".chunk","",cf)
+			cs = checksum_chunk(os.path.join(self.chunkdir,cf))
+			self.chunks[id] = ChunkInfo(id,cs)
 
 	def log(self,str):
 		log.log("[chunk%i] %s" % (self.id,str))
 
+	def write_test_chunk(self):
+		f = open(os.path.join(self.chunkdir,"0.chunk"),"wb")
+		s = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_='
+		for i in range(settings.CHUNK_SIZE/len(s)):
+			f.write(s)
+		f.close()
+
+	

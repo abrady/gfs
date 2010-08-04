@@ -32,7 +32,7 @@ import os
 # package modules
 import msg
 import net
-from log import log as _log # cheesy
+import log
 
 try:
 	import settings # Assumed to be in the same directory.
@@ -42,12 +42,6 @@ except ImportError:
 	
 	if(settings.DEBUG):
 		reload(settings)
-
-
-def log(str):
-	_log("[master] " + str)
-
-
 
 class ChunkInfo:
 	"contains the id of a chunk, and the servers that manage it"
@@ -60,7 +54,7 @@ class FileInfo:
 	"contains list of chunks by offset and any other file info"
 	def __init__(self,fname):
 		self.fname = fname
-		self.chunkinfos = []
+		self.chunkinfos = {}
 
 
 class Meta:
@@ -71,13 +65,14 @@ class Meta:
 	"""
 	def __init__(self):
 		self.fileinfos = {}
+		
 
 class MasterServer:
 	"""Server class for the 'master' of the gfs
 	"""
 
 	def __init__(self):
-		log("master server start")
+		self.log("master server start")
 		s = net.listen_sock(settings.MASTER_CHUNK_PORT)
 		self.chunksrv_server = net.PakServer(s,"chunkserverhandler")
 
@@ -87,26 +82,31 @@ class MasterServer:
 		# meta data
 		fn = settings.MASTER_META_FNAME
 		if(os.path.exists(fn)):
-			meta = cPickle.load(open(fn,'rb'))
-			log('meta(%s) loaded: ' % fn + str(meta))
+			self.meta = cPickle.load(open(fn,'rb'))
+			self.log('meta(%s) loaded: ' % fn + str(self.meta))
 		else:
-			meta = Meta()
-			log('making new meta %s: ' % fn + str(meta))
+			self.meta = Meta()
+			self.log('making new meta %s: ' % fn + str(self.meta))
 			
 				
 	def tick(self):
 		def req_handler(req,sock):
 			"callback for servers. dispatches the object with meta"
-			log('fulfill %s on sock %s' % (str(req), sock))
-			req.fulfill(meta,sock)
+			self.log(' %s on sock %s' % (str(req), sock))
+			req(self.meta,sock)
 
 		self.chunksrv_server.tick(req_handler)
 		self.client_server.tick(req_handler)
 
+	def log(self, str):
+		log.log("[master] " + str)
+
 			
 def write_test_meta():
 	meta = Meta()
-	meta.fileinfos['foo'] = FileInfo('foo')
+	fi = FileInfo('foo')
+	fi.chunkinfos['0'] = ChunkInfo(0,[])
+	meta.fileinfos['foo'] = fi
 	f = open(settings.MASTER_META_FNAME,'wb')
 	cPickle.dump(meta,f)
 	f.close()

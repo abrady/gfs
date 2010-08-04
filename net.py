@@ -2,10 +2,14 @@ import sys
 import socket
 import cPickle
 import select
-from log import log
+from log import log as _log
 import msg
 
 PAK_VER = 20100720
+
+def log(str):
+#	_log(str)
+	return
 
 class VersionMismatch(Exception):
 	def __init__(self,value):
@@ -19,7 +23,7 @@ class PakSender:
 		self.sock = sock
 
 	def _send_int(self, n):
-		log("sending %i" % n)
+		log("send_int %i" % n)
 		n = "%16i" % n
 		self.sock.send(n)
 
@@ -42,15 +46,24 @@ class PakReceiver:
 		return int(s)
 
 	def recv_obj(self):
+		if not self.can_recv():
+			return None
+		
 		ver = self._recv_int()
 		if not ver:
+			log("recv_obj: no version received, fail")
 			return None 
 		if(ver != PAK_VER):
 			raise VersionMismatch("recv_obj")
 		n = self._recv_int()
 		s = self.sock.recv(n)
+		log("loading " + s)
 		return cPickle.loads(s)
 
+	def can_recv(self):
+		rds,_,_ = select.select([self.sock],[],[],0)
+		return len(rds) > 0
+	
 class PakComm(PakReceiver,PakSender):
 	"helper for combining a sender and receiver"
 	def __init__(self,sock):
@@ -122,9 +135,14 @@ def listen_sock(port):
 	return s
 
 def client_sock(addr,port):
+	"standard client sock for my code: non blocking, connects to addr/port over TCP"
 	log('connecting to ' + addr + ' ' + str(port))
 	c = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-	c.connect((addr,port))
+	c.setblocking(False)
+	try:
+		c.connect((addr,port))
+	except socket.error:
+		pass
 	return c
 
 def test():
