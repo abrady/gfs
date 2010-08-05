@@ -28,6 +28,7 @@ import cPickle
 import time
 import settings
 import os
+import time
 
 # package modules
 import msg
@@ -110,3 +111,13 @@ def write_test_meta():
 	f = open(settings.MASTER_META_FNAME,'wb')
 	cPickle.dump(meta,f)
 	f.close()
+
+if __name__ == "__main__":
+	master = MasterServer()
+	frame_rate = 1/30
+	while True:
+		t = time.time()
+		master.tick()
+		dt = time.time() - t
+		if dt < frame_rate:
+			time.sleep(frame_rate - dt)

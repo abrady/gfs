@@ -1,4 +1,4 @@
-TESTING = 1
+TESTING = 0
 DEBUG = True
 CHUNK_SIZE = 2**20 # in orignal paper 64MB, but this is better for testing
 MAX_CHUNK_MUTATION_SIZE = CHUNK_SIZE/4 # keeps fragmentation low

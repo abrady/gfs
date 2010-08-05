@@ -1,8 +1,11 @@
 """
 utility module that contains classes for communication only
 """
-import log
 import net
+
+import log
+import os
+import msg
 
 class ChunkConnect:
 	"message from a chunkserver when it first connects"
@@ -28,12 +31,12 @@ class ChunkConnect:
 
 			if not added:
 				# TODO: gc these chunks?
-				log.err("failed to add id %s" % id)
+				log.err("failed to find file for chunk id %s" % id)
 				
 
 
-class ClientRead:
-	"message from a clientserver when it first connects"
+class ReadReq:
+	"message from a clientserver to the master to get a chunk handle"
 
 	def __init__(self,fname,chunk_index,len):
 		'inits this message with a read request'
@@ -46,7 +49,7 @@ class ClientRead:
 		queue. returns True if this request should be removed from the
 		queue, False otherwise"""
 		
-		log.log("ClientRead(%s,%i,len=%i)"%(self.fname,self.chunk_index,self.len))
+		log.log("ReadReq(%s,%i,len=%i)"%(self.fname,self.chunk_index,self.len))
 		res = net.PakSender(sock)
 
 		# get the file info
@@ -58,11 +61,35 @@ class ClientRead:
 		# get the chunk info			
 		try:
 			chunk_info = file_info.chunkinfos[self.chunk_index]
-			log.log("ClientRead: sending chunk info " + str(chunk_info))
+			log.log("ReadReq: sending chunk info " + str(chunk_info))
 			res.send_obj(chunk_info)
 		except IndexError:
-			log.log("ClientRead: chunk index out of bounds %i" % self.chunk_index)
+			log.log("ReadReq: chunk index out of bounds %i" % self.chunk_index)
 			res.send_obj(ReadErr("chunk '%i' out of range"%self.chunk_index))
+
+
+class ReadChunk:
+	"read a chunk from a chunkserver"
+	def __init__(self,id,offset,len):
+		self.id = id
+		self.offset = offset
+		self.len = len
+
+	def __call__(self,chunkserver,sock):
+		"get the chunk and send it back"
+		fn = os.path.join(chunkserver.chunkdir,self.id + '.chunk')
+		log.log('opening chunk ' + fn)
+		f = open(fn,'rb')
+		sender = net.PakSender(sock)
+		
+		if not f:
+			sender.send_obj(ReadErr("chunk %s not found" % self.id))
+			return
+		f.seek(self.offset)
+		s = f.read(self.len)
+		log.log("sending read of chunk " + s)
+		sender.send_obj(s)
+
 
 class ReadErr:
 	def __init__(self,str):

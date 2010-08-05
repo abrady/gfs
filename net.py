@@ -7,9 +7,11 @@ import msg
 
 PAK_VER = 20100720
 
+logging_enabled = True # False
+
 def log(str):
-#	_log(str)
-	return
+	if(logging_enabled):
+		_log(str)
 
 def can_recv(sock):
 	rds,_,_ = select.select([sock],[],[],0)
@@ -59,7 +61,7 @@ class PakReceiver:
 		
 		ver = self._recv_int()
 		if not ver:
-			log("recv_obj: no version received, fail")
+			log("recv_obj: socket closed on other end")
 			return None 
 		if(ver != PAK_VER):
 			raise VersionMismatch("recv_obj")
@@ -119,8 +121,8 @@ class PakServer:
 			
 		for r in rds:
 			recvr = PakReceiver(r)
-			if recvr:
-				obj = recvr.recv_obj()
+			obj = recvr.recv_obj()
+			if obj:
 				log("recv " + str(obj))
 				if(obj_handler):
 					obj_handler(obj,r)
@@ -128,8 +130,8 @@ class PakServer:
 					obj(r)
 			else:
 				# client disconnect, drop it
-				r.close()
 				self.client_socks.remove(r)			
+				r.close()
 
 def listen_sock(port):
 	log("listening on port %i" % port)

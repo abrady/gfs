@@ -52,3 +52,5 @@ if(settings.TESTING):
 	client.next()
 	master.tick()
 	client.next()
+	chunk.tick()
+	client.next()

@@ -53,6 +53,8 @@ import re
 import hashlib
 import os
 import cPickle
+import time
+
 
 import log
 import msg
@@ -104,15 +106,18 @@ class ChunkServer:
 		
 		if not os.path.exists(self.chunkdir):
 			os.mkdir(self.chunkdir)
+			
 		self._load()
+
+		cs_port = settings.CHUNK_CLIENT_PORT
+		settings.CHUNK_CLIENT_PORT += 1
+		cs = net.listen_sock(cs_port)
+		self.client_server = net.PakServer(cs,self.chunkdir)
 	
 		s = net.client_sock(settings.MASTER_ADDR,settings. MASTER_CHUNK_PORT)
 		self.master = net.PakComm(s)
-		chunk_conn = msg.ChunkConnect(s.getsockname(),self.chunks.keys())
+		chunk_conn = msg.ChunkConnect((socket.gethostname(),cs_port),self.chunks.keys())
 		self.master.send_obj(chunk_conn)
-
-		s = net.listen_sock(settings.CHUNK_CLIENT_PORT)
-		self.client_server = net.PakServer(s,self.chunkdir)
 
 	def tick(self):
 		"function for chunkserver to send and receive requests"
@@ -131,7 +136,7 @@ class ChunkServer:
 
 		self.chunks = {}
 		for cf in chunkfiles:
-			self.log("adding: " + cf)
+			self.log("adding chunk: " + cf)
 			id = re.sub(".chunk","",cf)
 			cs = checksum_chunk(os.path.join(self.chunkdir,cf))
 			self.chunks[id] = ChunkInfo(id,cs)
@@ -147,3 +152,12 @@ class ChunkServer:
 		f.close()
 
 	
+if __name__ == "__main__":
+	chunk = ChunkServer()
+	frame_rate = 1/30
+	while True:
+		t = time.time()
+		chunk.tick()
+		dt = time.time() - t
+		if dt < frame_rate:
+			time.sleep(frame_rate - dt)

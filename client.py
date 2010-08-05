@@ -54,7 +54,7 @@ def read(fname, offset, len):
 	sock.setblocking(False)
 	master_comm  = net.PakComm(sock)
 	chunk_index = offset/settings.CHUNK_SIZE
-	master_comm.send_obj(msg.ClientRead(fname,chunk_index,len))
+	master_comm.send_obj(msg.ReadReq(fname,chunk_index,len))
 
 	# wait for handle (yield)
 	log("read: entering wait loop")
@@ -71,23 +71,24 @@ def read(fname, offset, len):
 	# pick a chunkserver to talk to
 	random.shuffle(chunk_info.servers)
 	chunkaddr,port = chunk_info.servers[0]
+	log("picked server %s %i" % (chunkaddr,port))
 	chunksock = net.client_sock(chunkaddr,port)
 	while not net.can_send(chunksock):
+		log("can't send")
 		yield None
 	chunk_comm = net.PakComm(chunksock)
-	read_req = msg.ClientRead(chunk_info.id,offset,len)
+	read_req = msg.ReadChunk(chunk_info.id,offset,len)
+	log("sending read req")
 	chunk_comm.send_obj(read_req)
 
 	# wait for handle (yield)
 	yield None
 	while True:
 		read_res = chunk_comm.recv_obj()
-		if not read_res: 
-			yield None
-		else:
+		if read_res:
 			break
+		log("read nothing")
+		yield None
+	log("read obj " + read_res)
 	yield read_res
 	return 
-
-def test():
-	read("foo",0,32)
