@@ -91,6 +91,13 @@ class ChunkInfo:
 
 class ChunkServer:
 	"class for managing a chunkserver"
+
+	def _master_connect(self):
+		s = net.client_sock(settings.MASTER_ADDR,settings. MASTER_CHUNK_PORT)
+		self.master = net.PakComm(s)
+		chunk_conn = msg.ChunkConnect((socket.gethostname(),self.client_port),self.chunks.keys())
+		self.master.send_obj(chunk_conn)		
+	
 	def __init__(self):
 		"""inits a chunkserver:
 		- scan the chunkdir for chunks
@@ -109,16 +116,13 @@ class ChunkServer:
 			
 		self._load()
 
-		cs_port = settings.CHUNK_CLIENT_PORT
+		self.client_port = settings.CHUNK_CLIENT_PORT
 		settings.CHUNK_CLIENT_PORT += 1
-		cs = net.listen_sock(cs_port)
+		cs = net.listen_sock(self.client_port)
 		self.client_server = net.PakServer(cs,self.chunkdir)
 	
-		s = net.client_sock(settings.MASTER_ADDR,settings. MASTER_CHUNK_PORT)
-		self.master = net.PakComm(s)
-		chunk_conn = msg.ChunkConnect((socket.gethostname(),cs_port),self.chunks.keys())
-		self.master.send_obj(chunk_conn)
-
+		self._master_connect()
+		
 	def tick(self):
 		"function for chunkserver to send and receive requests"
 		def client_req_handler(obj,sock):
@@ -126,13 +130,22 @@ class ChunkServer:
 			obj(self,sock)
 		self.client_server.tick(client_req_handler)
 
+		self.master.tick()
+		if self.master.can_recv():
+			obj = self.master.recv_obj()
+			if not obj:
+				self.log("lost conn to master, reconnecting")
+				self._master_connect()
+			else:
+				obj()
+
 	def _load(self):
 		'load up all the chunks in the chunks directory'
 		
 		# TODO: cache the checksum info.
 		# right now just rebuild it each time
 		chunkfiles = fnmatch.filter(os.listdir(self.chunkdir),"*chunk")
-		self.log("loading meta for dir %s, %i chunks" % (self.chunkdir,len(chunkfiles)))
+		self.log("loading chunks for dir %s, %i chunks" % (self.chunkdir,len(chunkfiles)))
 
 		self.chunks = {}
 		for cf in chunkfiles:

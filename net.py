@@ -31,19 +31,34 @@ class PakSender:
 	"dumb packet switched class"
 	def __init__(self,sock):
 		self.sock = sock
+		self.objs = []
 
 	def _send_int(self, n):
 		log("send_int %i" % n)
 		n = "%16i" % n
 		self.sock.send(n)
 
-	def send_obj(self, o):
-		# send header
+	def _send_obj(self, o):
+		"send object directly on link. fails if socket not ready"
 		self._send_int(PAK_VER)
 		log("send_obj " + str(o))
 		p = cPickle.dumps(o) # if it fails here, obj probably not pickle-able
 		self._send_int(len(p))
 		self.sock.send(p)
+
+	def send_obj(self,o):
+		"queues object for sending until tick"
+		self.objs.append(o)
+
+	def tick(self):
+		n_sent = 0
+		for o in self.objs:
+			if not can_send(self.sock):
+				break
+			self._send_obj(o)
+			n_sent += 1
+		self.objs = self.objs[n_sent:]
+		log("sent %i, %i remain" %(n_sent,len(self.objs)))
 
 class PakReceiver:
 	def __init__(self,sock):
@@ -70,11 +85,16 @@ class PakReceiver:
 		log("loading " + s)
 		return cPickle.loads(s)
 
+	def can_recv(self):
+		return can_recv(self.sock)
+
 	
 class PakComm(PakReceiver,PakSender):
 	"helper for combining a sender and receiver"
 	def __init__(self,sock):
 		self.sock = sock
+		self.objs = []
+		
 
 class PakClientMsg:
 	'dummy class that shows a callable client message'
@@ -106,7 +126,7 @@ class PakServer:
 		"""
 		try:
 			conn, addr = self.listen_sock.accept()
-			log('%s conn from %s' % (self.name, str(addr)))
+			self.log('conn from %s' % str(addr))
 			self.client_socks.append(conn)
 		except socket.error:
 			pass # no conn
@@ -117,13 +137,13 @@ class PakServer:
 		rds,_,_ = select.select(self.client_socks,[],[],0)
 
 		if(len(rds)):
-			log("reading %i sockets" % len(rds))
+			self.log("reading %i sockets" % len(rds))
 			
 		for r in rds:
 			recvr = PakReceiver(r)
 			obj = recvr.recv_obj()
 			if obj:
-				log("recv " + str(obj))
+				self.log("recv " + str(obj))
 				if(obj_handler):
 					obj_handler(obj,r)
 				else:
@@ -133,6 +153,9 @@ class PakServer:
 				self.client_socks.remove(r)			
 				r.close()
 
+	def log(self, str):
+		log("[%s] %s" % (self.name,str))
+		
 def listen_sock(port):
 	log("listening on port %i" % port)
 	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -160,5 +183,7 @@ def test():
 	ps.tick() # should see 2 accepts
 	pc0.send_obj(PakClientMsg("0: hello port %i" % port))
 	pc1.send_obj(PakClientMsg("1: hello port %i" % port))
+	pc0.tick()
+	pc1.tick()
 	ps.tick()
 	del ps

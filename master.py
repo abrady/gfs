@@ -44,6 +44,7 @@ except ImportError:
 	if(settings.DEBUG):
 		reload(settings)
 
+
 class ChunkInfo:
 	"contains the id of a chunk, and the servers that manage it"
 	def __init__(self,chunk_id,servers):
@@ -75,10 +76,10 @@ class MasterServer:
 	def __init__(self):
 		self.log("master server start")
 		s = net.listen_sock(settings.MASTER_CHUNK_PORT)
-		self.chunksrv_server = net.PakServer(s,"chunkserverhandler")
+		self.chunksrv_server = net.PakServer(s,"master:chunksrv")
 
 		s = net.listen_sock(settings.MASTER_CLIENT_PORT)
-		self.client_server = net.PakServer(s,"clienthandler")
+		self.client_server = net.PakServer(s,"master:clientsrv")
 		
 		# meta data
 		fn = settings.MASTER_META_FNAME
@@ -88,16 +89,26 @@ class MasterServer:
 		else:
 			self.meta = Meta()
 			self.log('making new meta %s: ' % fn + str(self.meta))
+
+		# pak senders: things with network responses that might not
+		# be able to send right away
+		self.senders = []
 			
 				
 	def tick(self):
 		def req_handler(req,sock):
 			"callback for servers. dispatches the object with meta"
 			self.log(' %s on sock %s' % (str(req), sock))
-			req(self.meta,sock)
+			req(self,sock)
 
 		self.chunksrv_server.tick(req_handler)
 		self.client_server.tick(req_handler)
+
+		for sender in self.senders[:]:
+			self.log("ticking sender " + str(sender))
+			sender.tick()
+			if len(sender.objs) == 0:
+				self.senders.remove(sender)
 
 	def log(self, str):
 		log.log("[master] " + str)

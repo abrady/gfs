@@ -44,13 +44,25 @@ if(settings.TESTING):
 	global master
 	global chunk
 	global client
-	master = master.MasterServer()
-	chunk = chunkserver.ChunkServer()
-	master.tick()
+	master = master.MasterServer()      # start + load meta
+	chunk = chunkserver.ChunkServer()  # init + load chunks
 	chunk.write_test_chunk()
-	client = client.read("foo",0,32)
-	client.next()
+	master.tick()  # connection from chunkserver
+	chunk.tick()    # send ChunkConnect
+	master.tick()  # recv ChunkConnect
+	# master - chunk handshake done
+	master.chunksrv_server.client_socks[0].close()
+	master.chunksrv_server.client_socks = []
+	chunk.tick() # lost conn to master
 	master.tick()
-	client.next()
-	chunk.tick()
-	client.next()
+	chunk.tick() # send ChunkConn msg
+	master.tick() # recv ChunkConn msg
+
+	# todo: proper chunk timeout, proper cleanup of chunk loss
+	
+#	client = client.read("foo",0,32)
+#	client.next()
+#	master.tick() # should get read request
+#	client.next()
+#	chunk.tick()
+#	client.next()
