@@ -22,7 +22,8 @@ class ReadReq:
 		queue, False otherwise"""
 		meta = master.meta
 		master.log("ReadReq(%s,%i,len=%i)"%(self.fname,self.chunk_index,self.len))
-		sender = net.PakSender(sock)
+		sender_name = str(sock.getsockname())
+		sender = net.PakSender(sock,"master:%s" % (sender_name))
 		master.senders.append(sender)
 
 		# get the file info
@@ -44,29 +45,32 @@ class ReadReq:
 class ChunkConnect:
 	"message from a chunkserver when it first connects"
 
-	def __init__(self,sockname,ids):
+	def __init__(self,csid,ids):
 		'inits this message with all the UIDs for blocks a chunkserver knows'
-		self.sockname = sockname
+		self.csid = csid
 		self.ids = ids
 		
 	def __call__(self,master,sock):
 		meta = master.meta
-		master.log("ChunkConnect, %i ids: %s" % (len(self.ids),str(self.ids)))
+		master.log("ChunkConnect,%s,%i ids:%s" % (str(self.csid),len(self.ids),str(self.ids)))
+
+		master.drop_chunkserver(self.csid)
+		master.chunkservers[self.csid] = (sock) 
+		
 		for id in self.ids:
-			added = False
-			master.log("trying to add " + id)
+			added = [] 
 			for fi in meta.fileinfos.values():
 				for ci in fi.chunkinfos:
 					if ci.id != id:
 						pass
-						
-					master.log('adding chunkserver %s to file %s' % (str(self.sockname),fi.fname))
-					ci.servers.append((self.sockname))
-					added = True
+					ci.servers.append(self.csid)
+					added.append(fi.fname)
 
-			if not added:
-				# TODO: gc these chunks?
+			if not len(added):
 				log.err("failed to find file for chunk id %s" % id)
+			else:
+				# okay for same chunk to be in multiple files
+				master.log('adding chunk %s to files "%s"' % (id,str(added)))
 
 
 class ReadChunk:
@@ -81,7 +85,8 @@ class ReadChunk:
 		fn = os.path.join(chunkserver.chunkdir,self.id + '.chunk')
 		chunkserver.log('opening chunk ' + fn)
 		f = open(fn,'rb')
-		sender = net.PakSender(sock)
+		sender_name = str(sock.getsockname())
+		sender = net.PakSender(sock,"%s:%s" % (chunkserver.name,sender_name))
 		
 		if not f:
 			sender.send_obj(ReadErr("chunk %s not found" % self.id))
@@ -90,6 +95,7 @@ class ReadChunk:
 		s = f.read(self.len)
 		chunkserver.log("sending read of chunk " + s)
 		sender.send_obj(s)
+		chunkserver.senders.append(sender)
 
 
 class ReadErr:

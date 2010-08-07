@@ -52,9 +52,9 @@ def read(fname, offset, len):
 	log("read(%s,%i,%i), connecting to (%s,%i)"%(fname,offset,len,settings.MASTER_ADDR, settings.MASTER_CLIENT_PORT))
 	sock = net.client_sock(settings.MASTER_ADDR, settings.MASTER_CLIENT_PORT)
 	log("read: connected to master")
-	master_comm  = net.PakComm(sock)
+	master_comm  = net.PakComm(sock,"client")
 	chunk_index = offset/settings.CHUNK_SIZE
-	master_comm.send_obj(master.ReadReq(fname,chunk_index,len))
+	master_comm.send_obj(msg.ReadReq(fname,chunk_index,len))
 
 	# wait for handle (yield)
 	log("waiting for master response")
@@ -75,9 +75,9 @@ def read(fname, offset, len):
 	# pick a chunkserver to talk to
 	random.shuffle(chunk_info.servers)
 	chunkaddr,port = chunk_info.servers[0]
-	log("picked server %s %i" % (chunkaddr,port))
+	log("picked server (%s,%i)" % (chunkaddr,port))
 	chunksock = net.client_sock(chunkaddr,port)
-	chunk_comm = net.PakComm(chunksock)
+	chunk_comm = net.PakComm(chunksock,"client")
 
 	log("sending read req")
 	read_req = msg.ReadChunk(chunk_info.id,offset,len)
@@ -89,7 +89,7 @@ def read(fname, offset, len):
 		yield None
 		
 	read_res = chunk_comm.recv_obj()
-	if read_res:
+	if not read_res:
 		log("lost connectiont to chunkserver")
 		return
 	log("read obj " + read_res)

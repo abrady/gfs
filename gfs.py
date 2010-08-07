@@ -51,18 +51,24 @@ if(settings.TESTING):
 	chunk.tick()    # send ChunkConnect
 	master.tick()  # recv ChunkConnect
 	# master - chunk handshake done
-	master.chunksrv_server.client_socks[0].close()
-	master.chunksrv_server.client_socks = []
-	chunk.tick() # lost conn to master
+	log.log("dropping chunkserver")
+	master.drop_chunkserver(master.chunkservers.keys()[0])
+	chunk.tick() # lost conn to master, reconnecting
 	master.tick()
 	chunk.tick() # send ChunkConn msg
-	master.tick() # recv ChunkConn msg
-
-	# todo: proper chunk timeout, proper cleanup of chunk loss
+	master.tick() # recv ChunkConn msg, add chunkserver
 	
+	client = client.read("foo",0,32)
+	client.next() # connects to master, sends ReadReq
+	master.tick() # get conn
+	master.tick() # get ReadReq
+	client.next()  # send ReadChunk to chunkserver
+	chunk.tick()  # get ReadChunk, send response
+	s = client.next()
+
 #	client = client.read("foo",0,32)
-#	client.next()
-#	master.tick() # should get read request
-#	client.next()
-#	chunk.tick()
-#	client.next()
+#	client.next() # connect to master
+#	master.tick()
+#	master.client_server.
+
+# todo: try the failure states for each step of the read

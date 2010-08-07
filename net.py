@@ -2,24 +2,41 @@ import sys
 import socket
 import cPickle
 import select
-from log import log as _log
+from log import log as _log, err as _err
 import msg
 
 PAK_VER = 20100720
 
 logging_enabled = True # False
 
-def log(str):
+def log(name,str):
 	if(logging_enabled):
-		_log(str)
+		_log("[%s] %s " % (name,str))
+
+def err(name,str):
+	_err("[%s] %s " % (name,str))
 
 def can_recv(sock):
+	'''helper for testing sock status.
+	NOTE: not atomic, i.e. a return of true is not a guarantee that you can recv data'''
 	rds,_,_ = select.select([sock],[],[],0)
 	return len(rds) > 0
 
 def can_send(sock):
+	'''helper for testing sock status.
+	NOTE: not atomic, i.e. a return of true is not a guarantee that you can send'''
 	_,ws,_ = select.select([],[sock],[],0)
 	return len(ws) > 0
+
+def conn_refused(sock):
+	err = sock.getsockopt(socket.SOL_SOCKET,socket.SO_ERROR)
+	return err == 10061
+
+def sock_err(sock):
+	i = sock.getsockopt(socket.SOL_SOCKET,socket.SO_ERROR)
+	if i != 0:
+		return socket.errorTab[i]
+	return None
 
 class VersionMismatch(Exception):
 	def __init__(self,value):
@@ -29,22 +46,28 @@ class VersionMismatch(Exception):
 
 class PakSender:
 	"dumb packet switched class"
-	def __init__(self,sock):
+	def __init__(self,sock,name):
 		self.sock = sock
 		self.objs = []
+		self.name = name
 
 	def _send_int(self, n):
-		log("send_int %i" % n)
+		log(self.name, "send_int %i" % n)
 		n = "%16i" % n
 		self.sock.send(n)
 
 	def _send_obj(self, o):
 		"send object directly on link. fails if socket not ready"
-		self._send_int(PAK_VER)
-		log("send_obj " + str(o))
-		p = cPickle.dumps(o) # if it fails here, obj probably not pickle-able
-		self._send_int(len(p))
-		self.sock.send(p)
+		try:
+			self._send_int(PAK_VER)
+			log(self.name, "send_obj " + str(o))
+			p = cPickle.dumps(o) # if it fails here, obj probably not pickle-able
+			self._send_int(len(p))
+			self.sock.send(p)
+			return True
+		except socket.error as e:
+			err(self.name, "error " + str(e))
+			return False
 
 	def send_obj(self,o):
 		"queues object for sending until tick"
@@ -53,16 +76,18 @@ class PakSender:
 	def tick(self):
 		n_sent = 0
 		for o in self.objs:
-			if not can_send(self.sock):
+			if not self._send_obj(o):
+				log(self.name, "couldn't send object")
 				break
-			self._send_obj(o)
 			n_sent += 1
 		self.objs = self.objs[n_sent:]
-		log("sent %i, %i remain" %(n_sent,len(self.objs)))
+		log(self.name, "sent %i, %i remain" %(n_sent,len(self.objs)))
+		return not sock_err(self.sock)
 
 class PakReceiver:
-	def __init__(self,sock):
+	def __init__(self,sock,name):
 		self.sock = sock
+		self.name = name
 
 	def _recv_int(self):
 		s = self.sock.recv(16)
@@ -76,14 +101,15 @@ class PakReceiver:
 		
 		ver = self._recv_int()
 		if not ver:
-			log("recv_obj: socket closed on other end")
+			log(self.name,"recv_obj: socket closed on other end")
 			return None 
 		if(ver != PAK_VER):
 			raise VersionMismatch("recv_obj")
 		n = self._recv_int()
 		s = self.sock.recv(n)
-		log("loading " + s)
-		return cPickle.loads(s)
+		obj = cPickle.loads(s)
+		log(self.name, "loading %s instance" % type(obj))
+		return obj
 
 	def can_recv(self):
 		return can_recv(self.sock)
@@ -91,10 +117,10 @@ class PakReceiver:
 	
 class PakComm(PakReceiver,PakSender):
 	"helper for combining a sender and receiver"
-	def __init__(self,sock):
+	def __init__(self,sock,name):
 		self.sock = sock
 		self.objs = []
-		
+		self.name = name
 
 class PakClientMsg:
 	'dummy class that shows a callable client message'
@@ -140,7 +166,7 @@ class PakServer:
 			self.log("reading %i sockets" % len(rds))
 			
 		for r in rds:
-			recvr = PakReceiver(r)
+			recvr = PakReceiver(r,self.name)
 			obj = recvr.recv_obj()
 			if obj:
 				self.log("recv " + str(obj))
@@ -153,11 +179,19 @@ class PakServer:
 				self.client_socks.remove(r)			
 				r.close()
 
+	def close_client(self,sock):
+		"helper for closing a client by socket"
+		try:
+			self.client_socks.remove(sock)
+			sock.close()
+		except:
+			pass
+
 	def log(self, str):
-		log("[%s] %s" % (self.name,str))
+		log(self.name, str)
 		
 def listen_sock(port):
-	log("listening on port %i" % port)
+#	_log("listening on port %i" % port)
 	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 	s.bind(('',port))
 	s.setblocking(0)
@@ -166,20 +200,19 @@ def listen_sock(port):
 
 def client_sock(addr,port):
 	"standard client sock for my code: non blocking, connects to addr/port over TCP"
-	log('connecting to ' + addr + ' ' + str(port))
+#	_log('connecting to ' + addr + ' ' + str(port))
 	c = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 	c.setblocking(False)
-	try:
-		c.connect((addr,port))
-	except socket.error:
-		pass
+	errval = c.connect_ex((addr,port)) # since this is async, may get block error
+	if errval != 0 and errval != 10035: # magic code for 'would block'
+		return None
 	return c
 
 def test():
 	port = 12346
 	ps = PakServer(listen_sock(port),"testserver")
-	pc0 = PakSender(client_sock('localhost',port))
-	pc1 = PakSender(client_sock('localhost',port))
+	pc0 = PakSender(client_sock('localhost',port),"testserver")
+	pc1 = PakSender(client_sock('localhost',port),"testserver")
 	ps.tick() # should see 2 accepts
 	pc0.send_obj(PakClientMsg("0: hello port %i" % port))
 	pc1.send_obj(PakClientMsg("1: hello port %i" % port))

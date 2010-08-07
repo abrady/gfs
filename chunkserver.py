@@ -94,7 +94,7 @@ class ChunkServer:
 
 	def _master_connect(self):
 		s = net.client_sock(settings.MASTER_ADDR,settings. MASTER_CHUNK_PORT)
-		self.master = net.PakComm(s)
+		self.master = net.PakComm(s,self.name)
 		chunk_conn = msg.ChunkConnect((socket.gethostname(),self.client_port),self.chunks.keys())
 		self.master.send_obj(chunk_conn)		
 	
@@ -105,15 +105,17 @@ class ChunkServer:
 		- open client listening port
 		"""
 		global chunkservid
+		self.senders = []
 		self.id = chunkservid
 		self.log("chunkserver init")
 		
-		self.chunkdir = settings.CHUNK_DIR + str(chunkservid)		
+		self.chunkdir = settings.CHUNK_DIR + str(chunkservid)
+		self.name = "chunk%i" % self.id
 		chunkservid += 1
 		
 		if not os.path.exists(self.chunkdir):
 			os.mkdir(self.chunkdir)
-			
+
 		self._load()
 
 		self.client_port = settings.CHUNK_CLIENT_PORT
@@ -130,7 +132,10 @@ class ChunkServer:
 			obj(self,sock)
 		self.client_server.tick(client_req_handler)
 
-		self.master.tick()
+		if not self.master.tick():
+			self.log("master socket error '%s'. reconnecting" % net.sock_err(self.master.sock))
+			self._master_connect()
+
 		if self.master.can_recv():
 			obj = self.master.recv_obj()
 			if not obj:
@@ -138,6 +143,13 @@ class ChunkServer:
 				self._master_connect()
 			else:
 				obj()
+
+		for sender in self.senders[:]:
+			self.log("ticking sender " + str(sender))
+			sender.tick()
+			if len(sender.objs) == 0:
+				self.senders.remove(sender)
+			
 
 	def _load(self):
 		'load up all the chunks in the chunks directory'

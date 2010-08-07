@@ -93,6 +93,9 @@ class MasterServer:
 		# pak senders: things with network responses that might not
 		# be able to send right away
 		self.senders = []
+
+		# connected chunkservers
+		self.chunkservers = {}
 			
 				
 	def tick(self):
@@ -109,6 +112,30 @@ class MasterServer:
 			sender.tick()
 			if len(sender.objs) == 0:
 				self.senders.remove(sender)
+
+	def drop_chunkserver(self,csid):
+		'''remove this chunkserver from all chunks that reference it
+		'''
+		if self.chunkservers.has_key(csid):
+			self.log("dropping chunkserver %s" % str(csid))
+			cs = self.chunkservers[csid]
+			self.chunksrv_server.close_client(cs)
+		
+		# todo, something less stupid
+		# remove the chunkserver from the list of servers associated
+		# with each chunk
+		for fi in self.meta.fileinfos.values():
+			removed = []
+			for ci in fi.chunkinfos:
+				try:
+					ci.servers.remove(csid)
+					removed.append(ci.id)
+				except ValueError:
+					pass
+			if len(removed):
+				self.log("\tfrom %s removed chunks %s" % (fi.fname, str(removed)))
+				
+
 
 	def log(self, str):
 		log.log("[master] " + str)
