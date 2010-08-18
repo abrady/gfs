@@ -43,7 +43,6 @@ if(settings.TESTING):
 	master.write_test_meta()
 	global master
 	global chunk
-	global client
 	master = master.MasterServer()      # start + load meta
 	chunk = chunkserver.ChunkServer()  # init + load chunks
 	chunk.write_test_chunk()
@@ -57,18 +56,30 @@ if(settings.TESTING):
 	master.tick()
 	chunk.tick() # send ChunkConn msg
 	master.tick() # recv ChunkConn msg, add chunkserver
-	
-	client = client.read("foo",0,32)
-	client.next() # connects to master, sends ReadReq
+
+	log.log("client read")
+	global r
+	r = client.read("foo",0,32)
+	r.next() # connects to master, sends ReadReq
 	master.tick() # get conn
 	master.tick() # get ReadReq
-	client.next()  # send ReadChunk to chunkserver
+	r.next()  # send ReadChunk to chunkserver
 	chunk.tick()  # get ReadChunk, send response
-	s = client.next()
+	s = r.next()
+	log.log("received: %s" %s)
+	
+	#	r = client.read("foo",0,32)
+	#	r.next() # connect to master
+	#	master.tick()
+	#	master.client_server.
 
-#	client = client.read("foo",0,32)
-#	client.next() # connect to master
+	data = "1234567890"
+	global a
+	a = client.append("foo",data)
+	a.next()           # connect to master, send request
+	master.tick()    # get AppendReq,  
+	a.next()           # connecting to chunkserver
+	chunk.tick()
 #	master.tick()
-#	master.client_server.
-
 # todo: try the failure states for each step of the read
+# todo: chunk_info still has server info for two servers as of the append test.

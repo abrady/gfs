@@ -7,7 +7,8 @@ import msg
 
 PAK_VER = 20100720
 
-logging_enabled = True # False
+#logging_enabled = True
+logging_enabled = False 
 
 def log(name,str):
 	if(logging_enabled):
@@ -73,6 +74,9 @@ class PakSender:
 		"queues object for sending until tick"
 		self.objs.append(o)
 
+	def send_pending(self):
+		return len(self.objs)
+
 	def tick(self):
 		n_sent = 0
 		for o in self.objs:
@@ -116,9 +120,17 @@ class PakReceiver:
 
 	
 class PakComm(PakReceiver,PakSender):
-	"helper for combining a sender and receiver"
-	def __init__(self,sock,name):
-		self.sock = sock
+	'''helper for combining a sender and receiver.
+	Use this class for bideractional communication with a PakServer
+	- relies on the PakSender tick function to pump send data
+	'''
+	def __init__(self,sock_or_addrinfo,name):
+		self.sock = None
+		if isinstance(sock_or_addrinfo,tuple):
+			addr,port = sock_or_addrinfo
+			self.sock = client_sock(addr,port)
+		elif isinstance(sock_or_addrinfo,socket.socket):
+			self.sock = sock
 		self.objs = []
 		self.name = name
 
@@ -140,7 +152,7 @@ class PakServer:
 
 	def __init__(self, listen_sock, name):
 		self.listen_sock = listen_sock
-		self.client_socks = []
+		self.client_socks = {}
 		self.name = name
 
 	def tick(self, obj_handler=None):
@@ -153,14 +165,16 @@ class PakServer:
 		try:
 			conn, addr = self.listen_sock.accept()
 			self.log('conn from %s' % str(addr))
-			self.client_socks.append(conn)
+			if self.client_socks.has_key(addr):
+				self.log("duplicate connection from %s" % str(addr))
+			self.client_socks[addr] = conn
 		except socket.error:
 			pass # no conn
 
 		if not self.client_socks:
 			return
 		
-		rds,_,_ = select.select(self.client_socks,[],[],0)
+		rds,_,_ = select.select(self.client_socks.values(),[],[],0)
 
 		if(len(rds)):
 			self.log("reading %i sockets" % len(rds))
@@ -176,16 +190,19 @@ class PakServer:
 					obj(r)
 			else:
 				# client disconnect, drop it
-				self.client_socks.remove(r)			
+				self.client_socks.pop(r.getpeername())
 				r.close()
 
 	def close_client(self,sock):
 		"helper for closing a client by socket"
+		self.log("close_client %s" % sock)
 		try:
-			self.client_socks.remove(sock)
+			self.log("removing sock")
+			self.client_socks.pop(sock.getpeername())
+			self.log("closing socket")
 			sock.close()
 		except:
-			pass
+			self.log("error closing client %s" % str(sock))
 
 	def log(self, str):
 		log(self.name, str)

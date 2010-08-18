@@ -1,5 +1,5 @@
 #TODO logging changes to fs
-
+#TODO use actual binary arrays of data
 """
 Metadata:
 full pathnames to metadata (with prefix compression)
@@ -46,11 +46,22 @@ except ImportError:
 
 
 class ChunkInfo:
-	"contains the id of a chunk, and the servers that manage it"
-	def __init__(self,chunk_id,servers):
+	'''contains the id of a chunk, and the servers that manage it.
+	Has the following properties:
+	- id : the globally unique chunk id
+	- servers : list of chunkservers that claim ownership of this chunk
+	- len : the number of bytes written to the chunk so far
+	'''
+	def __init__(self,chunk_id,servers=[]):
 		self.id = chunk_id
 		self.servers = servers
+		self.len = 0
+		self.len_pending = 0 # length from outstanding writes
 
+	def chunk_len(self):
+		return self.len + self.len_pending
+
+	
 
 class FileInfo:
 	"contains list of chunks by offset and any other file info"
@@ -67,12 +78,11 @@ class Meta:
 	"""
 	def __init__(self):
 		self.fileinfos = {}
-		
+		self.max_chunk_id = 0
 
 class MasterServer:
 	"""Server class for the 'master' of the gfs
 	"""
-
 	def __init__(self):
 		self.log("master server start")
 		s = net.listen_sock(settings.MASTER_CHUNK_PORT)
@@ -96,7 +106,10 @@ class MasterServer:
 
 		# connected chunkservers
 		self.chunkservers = {}
-			
+
+		# guid of alterations
+		self.max_mutate_id = 0
+
 				
 	def tick(self):
 		def req_handler(req,sock):
@@ -117,8 +130,8 @@ class MasterServer:
 		'''remove this chunkserver from all chunks that reference it
 		'''
 		if self.chunkservers.has_key(csid):
-			self.log("dropping chunkserver %s" % str(csid))
 			cs = self.chunkservers[csid]
+			self.log("dropping chunkserver %s, socket %s" % (str(csid), str(cs)))
 			self.chunksrv_server.close_client(cs)
 		
 		# todo, something less stupid
@@ -134,9 +147,64 @@ class MasterServer:
 					pass
 			if len(removed):
 				self.log("\tfrom %s removed chunks %s" % (fi.fname, str(removed)))
-				
 
+	def _alloc_chunkid(self):
+		"allocate a new globally unique chunkid"
+		# TODO: journal this
+		self.meta.max_chunk_id += 1
+		return str(self.meta.max_chunk_id)
 
+	def _create_file(self,fname):
+		"update meta info with a new file"
+		self.log("create file %s" % fname)
+		if self.meta.fileinfos[fname]:
+			self.log("file %s already exists" % fnme)
+			return
+		fi = FileInfo(fname)
+		self.meta.fileinfos[fname] = fi
+
+		# update meta synchronously.
+		# TODO: background, log, replicate, etc.
+		self.log("serializing meta to disk")
+		f = open(settings.MASTER_META_FNAME,'wb')
+		cPickle.dump(meta,f)
+		f.close()
+		self.log("done writing meta")
+	
+	def add_chunk_to_file(self,fname):
+		'''allocate a new chunk for the passed file name.
+		returns None on failure
+		returns a ChunkInfo object initialized with a new id, and a set of servers to own that chunk.
+		'''
+		# TODO: journal this
+		file_info = self.meta.fileinfos[fname]
+		if not file_info:
+			return None
+		cid = self._alloc_chunkid()
+		self.log("adding chunk %s to file %s" % (cid,fname))
+		file_info.chunkinfos.append(ChunkInfo(cid))
+		return cid
+
+	def req_append(self,file_info,append_len):
+		"reserve space for appending an amount of data"
+		self.log("req append(%s,%i bytes)" % (file_info.fname,append_len))
+
+		n = len(file_info.chunkinfos)
+		if not n:
+			self.log("TODO no chunkinfos to append to")
+			return None
+		
+		chunk_info = file_info.chunkinfos[n-1]
+		if chunk_info.chunk_len() + append_len > settings.CHUNK_SIZE:
+			self.log("can't append to chunk %s, full" % chunk_info.id)
+			return None 
+
+		chunk_info.len_pending += append_len
+		self.max_mutate_id += 1
+		chunk_info.mutate_id = self.max_mutate_id
+		#self.log("mutating chunk %s" % chunk_info.id)
+		return chunk_info
+		
 	def log(self, str):
 		log.log("[master] " + str)
 
@@ -144,7 +212,7 @@ class MasterServer:
 def write_test_meta():
 	meta = Meta()
 	fi = FileInfo('foo')
-	fi.chunkinfos.insert(0,ChunkInfo('0',[]))
+	fi.chunkinfos.insert(0,ChunkInfo('1',[]))
 	meta.fileinfos['foo'] = fi
 	f = open(settings.MASTER_META_FNAME,'wb')
 	cPickle.dump(meta,f)

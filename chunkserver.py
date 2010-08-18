@@ -93,10 +93,9 @@ class ChunkServer:
 	"class for managing a chunkserver"
 
 	def _master_connect(self):
-		s = net.client_sock(settings.MASTER_ADDR,settings. MASTER_CHUNK_PORT)
-		self.master = net.PakComm(s,self.name)
+		self.master = net.PakComm((settings.MASTER_ADDR,settings. MASTER_CHUNK_PORT),self.name)
 		chunk_conn = msg.ChunkConnect((socket.gethostname(),self.client_port),self.chunks.keys())
-		self.master.send_obj(chunk_conn)		
+		self.master.send_obj(chunk_conn)
 	
 	def __init__(self):
 		"""inits a chunkserver:
@@ -105,7 +104,9 @@ class ChunkServer:
 		- open client listening port
 		"""
 		global chunkservid
+		self.data_sends = []
 		self.senders = []
+		self.pending_data = {}
 		self.id = chunkservid
 		self.log("chunkserver init")
 		
@@ -136,6 +137,7 @@ class ChunkServer:
 			self.log("master socket error '%s'. reconnecting" % net.sock_err(self.master.sock))
 			self._master_connect()
 
+		# talk to the master
 		if self.master.can_recv():
 			obj = self.master.recv_obj()
 			if not obj:
@@ -144,12 +146,20 @@ class ChunkServer:
 			else:
 				obj()
 
+		# pump any PakSender objects
 		for sender in self.senders[:]:
 			self.log("ticking sender " + str(sender))
 			sender.tick()
 			if len(sender.objs) == 0:
 				self.senders.remove(sender)
-			
+
+		# pump and data forwarding coroutines
+		for ds in self.data_sends[:]:
+			try:
+				ds.next()
+			except:
+				self.data_sends.remove(ds)
+				
 
 	def _load(self):
 		'load up all the chunks in the chunks directory'
@@ -170,7 +180,7 @@ class ChunkServer:
 		log.log("[chunk%i] %s" % (self.id,str))
 
 	def write_test_chunk(self):
-		f = open(os.path.join(self.chunkdir,"0.chunk"),"wb")
+		f = open(os.path.join(self.chunkdir,"1.chunk"),"wb")
 		s = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_='
 		for i in range(settings.CHUNK_SIZE/len(s)):
 			f.write(s)

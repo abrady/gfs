@@ -19,6 +19,7 @@ Client operations:
 - append
 """
 import random
+import cPickle
 
 # package modules
 import net
@@ -35,10 +36,8 @@ except ImportError:
 	if(settings.DEBUG):
 		reload(settings)
 
-
 def log(str):
 	_log("[client] " + str)
-
 
 def read(fname, offset, len):
 	"""involves these steps:
@@ -49,49 +48,80 @@ def read(fname, offset, len):
 	4 close handle on the master
 	4a master releases lock
 	"""
+	def log(str):
+		_log("[client:read] " + str)
+		
 	log("read(%s,%i,%i), connecting to (%s,%i)"%(fname,offset,len,settings.MASTER_ADDR, settings.MASTER_CLIENT_PORT))
-	sock = net.client_sock(settings.MASTER_ADDR, settings.MASTER_CLIENT_PORT)
-	log("read: connected to master")
-	master_comm  = net.PakComm(sock,"client")
+	log("connecting to master")
+	master_comm  = net.PakComm((settings.MASTER_ADDR, settings.MASTER_CLIENT_PORT),"client:read")
 	chunk_index = offset/settings.CHUNK_SIZE
-	master_comm.send_obj(msg.ReadReq(fname,chunk_index,len))
 
-	# wait for handle (yield)
-	log("waiting for master response")
-	while not master_comm.can_recv():
-		log("can't receive")
-		master_comm.tick()
-		yield None
-	log("master responded")
-	chunk_info = master_comm.recv_obj()
+	req = msg.ReadReq(fname,chunk_index,len)
+	for chunk_info in msg.handle_req_response(master_comm,req,log):
+		if chunk_info:
+			break
+		yield None		
 	if not chunk_info:
-		log("lost connection to master")
 		return
-	
-	if isinstance(chunk_info,msg.ReadErr):
-		log("read request failed: '%s'" % str(chunk_info))
-		return 
 
 	# pick a chunkserver to talk to
+	#log("chunk_info: %s" % cPickle.dumps(chunk_info))
 	random.shuffle(chunk_info.servers)
 	chunkaddr,port = chunk_info.servers[0]
 	log("picked server (%s,%i)" % (chunkaddr,port))
-	chunksock = net.client_sock(chunkaddr,port)
-	chunk_comm = net.PakComm(chunksock,"client")
+	chunk_comm = net.PakComm((chunkaddr,port),"client:read")
 
 	log("sending read req")
 	read_req = msg.ReadChunk(chunk_info.id,offset,len)
-	chunk_comm.send_obj(read_req)
-
-	log("waiting for data")
-	while not chunk_comm.can_recv():
-		chunk_comm.tick()
+	for read_res in msg.handle_req_response(chunk_comm,read_req,log):
+		if read_res:
+			break
 		yield None
-		
-	read_res = chunk_comm.recv_obj()
 	if not read_res:
 		log("lost connectiont to chunkserver")
 		return
-	log("read obj " + read_res)
 	yield read_res
-	return 
+
+
+def append(fname, data):
+	"append a block of data to a file"
+	def log(str):
+		_log("[client:append] " + str)
+
+	log("append(%s,len=%i )" %(fname,len(data)))
+	log("talking to master")
+	append_req = msg.AppendReq(fname,len(data))
+	master_comm  = net.PakComm((settings.MASTER_ADDR, settings.MASTER_CLIENT_PORT),"client:append")
+	for res in msg.handle_req_response(master_comm,append_req,log):
+		if res:
+			break
+		yield None
+	if not res:
+		return
+	chunk_info = res
+
+	# TODO another deviation: in real GFS, 'closest' chunkserver would be
+	# picked using some heuristic
+	random.shuffle(chunk_info.servers)
+	chunkaddr,port = chunk_info.servers[0]
+	log("got chunk_info. connecting to chunkserver (%s,%i) (picked from %s)" % (chunkaddr,port,str(chunk_info.servers)))
+	chunk_comm = net.PakComm((chunkaddr,port),"client:read")
+	write_req = msg.SendData(chunk_info.id,chunk_info.mutate_id,data)
+	for res in msg.handle_req_response(chunk_comm,write_req,log):
+		if res:
+			break;
+		yield None
+		if not res:
+			return
+
+	commit_req = msg.CommitAppendReq(chunk_info)
+	for res in msg.handle_req_response(master_comm,commit_req,log):
+		if res:
+			break
+		yield None
+	if not res:
+		return
+	
+	# TODO any kind of retrying
+	log("write complete " + str(res))
+	yield res
