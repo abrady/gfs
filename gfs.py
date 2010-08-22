@@ -68,18 +68,24 @@ if(settings.TESTING):
 	s = r.next()
 	log.log("received: %s" %s)
 	
-	#	r = client.read("foo",0,32)
-	#	r.next() # connect to master
-	#	master.tick()
-	#	master.client_server.
+	# #	r = client.read("foo",0,32)
+	# #	r.next() # connect to master
+	# #	master.tick()
+	# #	master.client_server.
 
 	data = "1234567890"
 	global a
 	a = client.append("foo",data)
 	a.next()           # connect to master, send request
 	master.tick()    # get AppendReq,  
-	a.next()           # connecting to chunkserver
-	chunk.tick()
-#	master.tick()
+	a.next()           # connecting to chunkserver, SendData
+	chunk.tick()     # recv SendData
+	a.next()           # get success for mutate 1, send commit to master
+	master.tick()   # send commit msg to chunk
+	chunk.tick()     # write data
+	master.tick()   # get response, done with commit,
+	master.tick()   # send client success
+	a.next()          # receive success
+	
 # todo: try the failure states for each step of the read
 # todo: chunk_info still has server info for two servers as of the append test.

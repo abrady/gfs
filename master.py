@@ -80,7 +80,7 @@ class Meta:
 		self.fileinfos = {}
 		self.max_chunk_id = 0
 
-class MasterServer:
+class MasterServer(net.PakSenderTracker):
 	"""Server class for the 'master' of the gfs
 	"""
 	def __init__(self):
@@ -110,6 +110,8 @@ class MasterServer:
 		# guid of alterations
 		self.max_mutate_id = 0
 
+		# coroutines of in progress commits of appends, writes, etc. 
+		self.pending_commits = []
 				
 	def tick(self):
 		def req_handler(req,sock):
@@ -120,16 +122,21 @@ class MasterServer:
 		self.chunksrv_server.tick(req_handler)
 		self.client_server.tick(req_handler)
 
-		for sender in self.senders[:]:
-			self.log("ticking sender " + str(sender))
-			sender.tick()
-			if len(sender.objs) == 0:
-				self.senders.remove(sender)
+		self.tick_senders()
 
+		# pump any coroutines
+		for ds in self.pending_commits[:]:
+			try:
+				self.log("pumping pending_commit %s" % str(ds))
+				ds.next()
+			except StopIteration:
+				self.log("done with %s" % str(ds))
+				self.pending_commits.remove(ds)
+		
 	def drop_chunkserver(self,csid):
 		'''remove this chunkserver from all chunks that reference it
 		'''
-		if self.chunkservers.has_key(csid):
+		if csid in self.chunkservers:
 			cs = self.chunkservers[csid]
 			self.log("dropping chunkserver %s, socket %s" % (str(csid), str(cs)))
 			self.chunksrv_server.close_client(cs)
@@ -137,16 +144,23 @@ class MasterServer:
 		# todo, something less stupid
 		# remove the chunkserver from the list of servers associated
 		# with each chunk
-		for fi in self.meta.fileinfos.values():
+		for fi in self.meta.fileinfos:
 			removed = []
-			for ci in fi.chunkinfos:
+			fname = self.meta.fileinfos[fi].fname
+			for ci in self.meta.fileinfos[fi].chunkinfos:
 				try:
+					#self.log("trying to remove %s from %s (%s)" % (str(csid),ci.id,ci.servers))
 					ci.servers.remove(csid)
 					removed.append(ci.id)
+					#self.log("removed %s" % str(ci.servers))
+					#self.log("aaand....%s" % self.meta.fileinfos['foo'].chunkinfos[0].servers)
 				except ValueError:
+					#self.log("couldn't remove %s from chunk %s" % (str(csid), ci.id))
 					pass
 			if len(removed):
-				self.log("\tfrom %s removed chunks %s" % (fi.fname, str(removed)))
+				self.log("\tfrom %s removed chunks %s" % (fname, str(removed)))
+			else:
+				self.log("\tremove chunkserver %s from nothing" % (str(csid)))
 
 	def _alloc_chunkid(self):
 		"allocate a new globally unique chunkid"

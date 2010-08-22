@@ -97,6 +97,7 @@ def append(fname, data):
 			break
 		yield None
 	if not res:
+		log("no response from master on append request. failing")
 		return
 	chunk_info = res
 
@@ -104,24 +105,26 @@ def append(fname, data):
 	# picked using some heuristic
 	random.shuffle(chunk_info.servers)
 	chunkaddr,port = chunk_info.servers[0]
-	log("got chunk_info. connecting to chunkserver (%s,%i) (picked from %s)" % (chunkaddr,port,str(chunk_info.servers)))
-	chunk_comm = net.PakComm((chunkaddr,port),"client:read")
-	write_req = msg.SendData(chunk_info.id,chunk_info.mutate_id,data)
+	log("mutate id %i from master. connecting to chunkserver (%s,%i) (picked from %s)" % (chunk_info.mutate_id,chunkaddr,port,str(chunk_info.servers)))
+	chunk_comm = net.PakComm((chunkaddr,port),"client:append")
+	write_req = msg.SendData(chunk_info,data)
 	for res in msg.handle_req_response(chunk_comm,write_req,log):
 		if res:
 			break;
 		yield None
-		if not res:
-			return
-
+	if not res:
+		log("no response from chunkservers on Senddata. failing")
+		return
+	log("append %i succeeded got %s from chunkserver" % (res.mutate_id,str(res)))
 	commit_req = msg.CommitAppendReq(chunk_info)
 	for res in msg.handle_req_response(master_comm,commit_req,log):
 		if res:
 			break
 		yield None
 	if not res:
+		log("no respone from master on commit. failing")
 		return
 	
 	# TODO any kind of retrying
-	log("write complete " + str(res))
+	log("%i write complete " % res.mutate_id)
 	yield res

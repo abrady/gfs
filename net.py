@@ -1,3 +1,5 @@
+""" helper package for sending object asynchronously over sockets
+"""
 import sys
 import socket
 import cPickle
@@ -7,7 +9,7 @@ import msg
 
 PAK_VER = 20100720
 
-#logging_enabled = True
+# logging_enabled = True
 logging_enabled = False 
 
 def log(name,str):
@@ -46,7 +48,11 @@ class VersionMismatch(Exception):
 		return self.value
 
 class PakSender:
-	"dumb packet switched class"
+	"""simple class for sending packet switched data .
+	Use this along with PakReceiver to send objects over a network
+	TODO: optimizations, version can be once per connection, for example
+	object sends could be coalesced, etc.
+	"""
 	def __init__(self,sock,name):
 		self.sock = sock
 		self.objs = []
@@ -88,7 +94,10 @@ class PakSender:
 		log(self.name, "sent %i, %i remain" %(n_sent,len(self.objs)))
 		return not sock_err(self.sock)
 
+
 class PakReceiver:
+	"""class for receiving packet switched network traffic
+	"""
 	def __init__(self,sock,name):
 		self.sock = sock
 		self.name = name
@@ -130,7 +139,7 @@ class PakComm(PakReceiver,PakSender):
 			addr,port = sock_or_addrinfo
 			self.sock = client_sock(addr,port)
 		elif isinstance(sock_or_addrinfo,socket.socket):
-			self.sock = sock
+			self.sock = sock_or_addrinfo
 		self.objs = []
 		self.name = name
 
@@ -165,7 +174,7 @@ class PakServer:
 		try:
 			conn, addr = self.listen_sock.accept()
 			self.log('conn from %s' % str(addr))
-			if self.client_socks.has_key(addr):
+			if addr in self.client_socks:
 				self.log("duplicate connection from %s" % str(addr))
 			self.client_socks[addr] = conn
 		except socket.error:
@@ -206,7 +215,32 @@ class PakServer:
 
 	def log(self, str):
 		log(self.name, str)
-		
+
+
+class PakSenderTracker(object):
+	"""helper class for pumping PakSenders
+	- a PakSender doesn't send objects until its tick function, and something
+	needs to call that tick function, so if you're running a server it is handy to have a couple of methods for tracking senders and making sure your objects get sent.
+	"""
+	def make_tracked_sender(self,sock_or_addrinfo, log_ctxt = ""):
+		"create a sender that is tracked by this ChunkServer, and is removed once its send queue is empty"
+		sender = PakSender(sock_or_addrinfo,"master:%s" % log_ctxt)
+		self.senders.append(sender)
+		return sender
+
+	def send_obj_to(self, sock_or_addrinfo, obj, log_ctxt=""):
+		"send the object to the destination"
+		sender = self.make_tracked_sender(sock_or_addrinfo)
+		sender.send_obj(obj)
+
+	def tick_senders(self):
+		for sender in self.senders[:]:
+			self.log("ticking sender " + str(sender))
+			sender.tick()
+			if len(sender.objs) == 0:
+				self.senders.remove(sender)
+
+
 def listen_sock(port):
 #	_log("listening on port %i" % port)
 	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

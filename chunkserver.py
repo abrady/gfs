@@ -92,9 +92,12 @@ class ChunkInfo:
 class ChunkServer:
 	"class for managing a chunkserver"
 
+	def name(self):
+		return (socket.gethostname(),self.client_port)
+
 	def _master_connect(self):
 		self.master = net.PakComm((settings.MASTER_ADDR,settings. MASTER_CHUNK_PORT),self.name)
-		chunk_conn = msg.ChunkConnect((socket.gethostname(),self.client_port),self.chunks.keys())
+		chunk_conn = msg.ChunkConnect(self.name(),self.chunks.keys())
 		self.master.send_obj(chunk_conn)
 	
 	def __init__(self):
@@ -111,7 +114,7 @@ class ChunkServer:
 		self.log("chunkserver init")
 		
 		self.chunkdir = settings.CHUNK_DIR + str(chunkservid)
-		self.name = "chunk%i" % self.id
+		#self.name = "chunk%i" % self.id
 		chunkservid += 1
 		
 		if not os.path.exists(self.chunkdir):
@@ -144,22 +147,30 @@ class ChunkServer:
 				self.log("lost conn to master, reconnecting")
 				self._master_connect()
 			else:
-				obj()
+				obj(self,self.master.sock)
 
 		# pump any PakSender objects
 		for sender in self.senders[:]:
 			self.log("ticking sender " + str(sender))
 			sender.tick()
 			if len(sender.objs) == 0:
+				self.log("sender queue empty, removing")
 				self.senders.remove(sender)
 
 		# pump and data forwarding coroutines
 		for ds in self.data_sends[:]:
 			try:
+				self.log("data_send %s" % str(ds))
 				ds.next()
 			except:
+				self.log("done with %s" % str(ds))
 				self.data_sends.remove(ds)
-				
+
+	def make_tracked_sender(self,sock_or_addrinfo, log_ctxt = ""):
+		"create a sender that is tracked by this ChunkServer"
+		sender = net.PakSender(sock_or_addrinfo, "chunkserver:%s" % log_ctxt)
+		self.senders.append(sender)
+		return sender
 
 	def _load(self):
 		'load up all the chunks in the chunks directory'
