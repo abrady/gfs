@@ -1,5 +1,5 @@
-#TODO logging changes to fs
-#TODO use actual binary arrays of data
+#TODO logging changes to fs rather than synchronous write
+#TODO delete orphaned chunks on chunkserver
 """
 Metadata:
 full pathnames to metadata (with prefix compression)
@@ -58,16 +58,22 @@ class ChunkInfo:
 		self.len = 0
 		self.len_pending = 0 # length from outstanding writes
 
-	def chunk_len(self):
+	def length(self):
 		return self.len + self.len_pending
 
-	
 
 class FileInfo:
 	"contains list of chunks by offset and any other file info"
 	def __init__(self,fname):
 		self.fname = fname
 		self.chunkinfos = []
+
+	def length(self):
+		"length of this file"
+		n = 0
+		for c in self.chunkinfos:
+			n += c.length()
+		return n
 
 
 class Meta:
@@ -209,7 +215,7 @@ class MasterServer(net.PakSenderTracker):
 			return None
 		
 		chunk_info = file_info.chunkinfos[n-1]
-		if chunk_info.chunk_len() + append_len > settings.CHUNK_SIZE:
+		if chunk_info.length() + append_len > settings.CHUNK_SIZE:
 			self.log("can't append to chunk %s, full" % chunk_info.id)
 			return None 
 
@@ -226,7 +232,9 @@ class MasterServer(net.PakSenderTracker):
 def write_test_meta():
 	meta = Meta()
 	fi = FileInfo('foo')
-	fi.chunkinfos.insert(0,ChunkInfo('1',[]))
+	ci = ChunkInfo('1',[])
+	ci.len = 64
+	fi.chunkinfos.insert(0,ci)
 	meta.fileinfos['foo'] = fi
 	f = open(settings.MASTER_META_FNAME,'wb')
 	cPickle.dump(meta,f)

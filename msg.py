@@ -105,6 +105,24 @@ class ChunkConnect:
 				pass
 
 # *************************************************************************
+# Stat: get info about a file
+# *************************************************************************
+
+class FileInfoReq:
+	"get information about a named file"
+	def __init__(self,fname):
+		self.fname = fname
+
+	def __call__(self,master,sock):
+		info = master.meta.fileinfos[self.fname]
+		sender = master.make_tracked_sender(sock,"FileInfoReq")
+		if not info:
+			sender.send_obj(FileNotFoundErr("couldn't find file %s" % self.fname))
+			return
+		sender.send_obj(info)
+
+
+# *************************************************************************
 # Read  
 # *************************************************************************
 

@@ -39,6 +39,19 @@ except ImportError:
 def log(str):
 	_log("[client] " + str)
 
+
+def file_info(fname):
+	log("file_info(%s), connecting to (%s,%i)"%(fname,settings.MASTER_ADDR, settings.MASTER_CLIENT_PORT))
+	log("connecting to master")
+	master_comm  = net.PakComm((settings.MASTER_ADDR, settings.MASTER_CLIENT_PORT),"client:read")
+
+	req = msg.FileInfoReq(fname)
+	for file_info in msg.handle_req_response(master_comm,req,log):
+		if file_info:
+			break
+		yield None		
+	yield file_info
+
 def read(fname, offset, len):
 	"""involves these steps:
 	1 request (fname/offset) from the master
